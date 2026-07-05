@@ -238,6 +238,11 @@ html, body {
 .decision-block { display: flex; flex-direction: column; gap: 14px; }
 .decision-block .decision-prompt { font-size: 1.15rem; font-weight: 700; text-align: center; padding: 8px 0; }
 
+/* step jump picker */
+.step-pick { text-align: left; font-weight: 500; letter-spacing: 0.02em; }
+.step-pick.selected { border-color: var(--accent); background: rgba(55, 182, 255, 0.14); }
+.step-pick .badge-critical { float: right; }
+
 /* pause */
 .pause-wrap { display: flex; flex-direction: column; gap: 16px; margin: auto 0; text-align: center; max-width: 420px; width: 100%; align-self: center; }
 .pause-timer { font-size: 3.4rem; font-weight: 800; letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }

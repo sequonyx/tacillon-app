@@ -22,12 +22,6 @@ function attestationText(orgName) {
 const FINE_PRINT = 'Full third-party TECH authorization verification will be available in a future release. ' +
   'During this phase, TECH qualification is the responsibility of the deploying organization.';
 
-// Normalize typed label: collapse whitespace, uppercase. Physical labels are printed uppercase;
-// this forgives keyboard auto-capitalization quirks without forgiving wrong text.
-function normLabel(s) {
-  return s.trim().replace(/\s+/g, ' ').toUpperCase();
-}
-
 export async function runGates(ctx) {
   const { kc, ledger, ui, sessionId } = ctx;
   const title = document.getElementById('gate-title');
@@ -45,54 +39,41 @@ export async function runGates(ctx) {
   /* ---------------- Gate 0: Equipment Label Confirmation ---------------- */
   setProgress(0);
   title.textContent = 'GATE 0 — EQUIPMENT LABELS';
-  let mismatches = 0;
 
-  for (const label of kc.equipment_labels) {
+  for (let i = 0; i < kc.equipment_labels.length; i++) {
+    const label = kc.equipment_labels[i];
     const ok = await new Promise((resolve) => {
       body.innerHTML = `
-        <div class="gate-heading">Equipment label check</div>
-        <div class="gate-sub">Locate this item and read its physical label. Type the label text exactly as printed. This confirms you are at the right equipment.</div>
+        <div class="gate-heading">Equipment label check ${i + 1} of ${kc.equipment_labels.length}</div>
+        <div class="gate-sub">Locate this item and read its physical label. Confirming the label matches puts you at the right equipment.</div>
         <div class="label-card">
-          <div class="label-prompt">Find and confirm:</div>
+          <div class="label-prompt">Find the physical label:</div>
           <div class="label-name">${label}</div>
-          <input class="label-input" id="label-input" autocomplete="off" autocapitalize="characters"
-                 placeholder="TYPE LABEL HERE" />
-          <div class="mismatch-note" id="mismatch-note"></div>
         </div>
-        <button class="btn btn-primary btn-big" id="label-confirm">CONFIRM LABEL</button>
+        <div id="label-actions" style="display:flex;flex-direction:column;gap:10px;"></div>
       `;
-      const input = document.getElementById('label-input');
-      const note = document.getElementById('mismatch-note');
-      input.focus();
+      const actions = document.getElementById('label-actions');
 
-      document.getElementById('label-confirm').addEventListener('click', async () => {
-        const typed = input.value;
-        if (normLabel(typed) === normLabel(label)) {
-          await ledger.append('gate_label_confirm', { session_id: sessionId, detail: { label, typed } });
-          resolve(true);
-        } else {
-          mismatches++;
-          await ledger.append('gate_label_mismatch', {
-            session_id: sessionId,
-            detail: { label, typed, mismatch_count: mismatches }
-          });
-          if (mismatches >= 3) {
-            resolve(false);
-          } else {
-            note.textContent = `Label does not match. Check the physical label and retype. (${mismatches} of 3 mismatches)`;
-            input.value = '';
-            input.focus();
-          }
-        }
-      });
+      const hold = ui.holdButton(`LABEL CONFIRMED: ${label}`, 'press and hold');
+      hold.onComplete(() => resolve(true));
+      actions.appendChild(hold.el);
+
+      const missing = document.createElement('button');
+      missing.className = 'btn btn-danger-ghost';
+      missing.textContent = 'LABEL MISSING OR DOES NOT MATCH';
+      missing.addEventListener('click', () => resolve(false));
+      actions.appendChild(missing);
     });
 
-    if (!ok) {
+    if (ok) {
+      await ledger.append('gate_label_confirm', { session_id: sessionId, method: 'tap', detail: { label } });
+    } else {
+      await ledger.append('gate_label_mismatch', { session_id: sessionId, detail: { label, reason: 'label missing or does not match' } });
       await ledger.append('gate_declined', {
         session_id: sessionId,
-        detail: { gate: 0, reason: 'Three label mismatches — equipment identity not confirmed' }
+        detail: { gate: 0, reason: `Equipment label not confirmed: ${label}` }
       });
-      return { passed: false, reason: 'Equipment label could not be confirmed after three attempts. Verify you are at the correct equipment, then start a new session.' };
+      return { passed: false, reason: `The label "${label}" could not be confirmed at the equipment. Verify you are at the correct equipment, then start a new session.` };
     }
   }
 

@@ -87,6 +87,37 @@ function modal(text, buttonLabels) {
   });
 }
 
+/* Modal with a text input. Returns the typed string, or null if cancelled. */
+function modalInput(text, placeholder) {
+  return new Promise((resolve) => {
+    const wrap = document.getElementById('modal');
+    document.getElementById('modal-text').textContent = text;
+    const actions = document.getElementById('modal-actions');
+    actions.innerHTML = '';
+
+    const input = document.createElement('input');
+    input.className = 'label-input';
+    input.placeholder = placeholder || '';
+    input.autocomplete = 'off';
+    actions.appendChild(input);
+
+    const save = document.createElement('button');
+    save.className = 'btn btn-primary';
+    save.textContent = 'RECORD';
+    save.addEventListener('click', () => { wrap.classList.add('hidden'); resolve(input.value); });
+    actions.appendChild(save);
+
+    const cancel = document.createElement('button');
+    cancel.className = 'btn btn-secondary';
+    cancel.textContent = 'CANCEL';
+    cancel.addEventListener('click', () => { wrap.classList.add('hidden'); resolve(null); });
+    actions.appendChild(cancel);
+
+    wrap.classList.remove('hidden');
+    input.focus();
+  });
+}
+
 let reviewBackTarget = 'screen-home';
 function openReview(backTarget = 'screen-home') {
   reviewBackTarget = backTarget;
@@ -94,7 +125,7 @@ function openReview(backTarget = 'screen-home') {
   show('screen-review');
 }
 
-const ui = { show, holdButton, modal, openReview };
+const ui = { show, holdButton, modal, modalInput, openReview };
 
 /* ---------------- boot ---------------- */
 

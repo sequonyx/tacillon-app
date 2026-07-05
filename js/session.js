@@ -127,6 +127,11 @@ export async function runSession(ctx, resumeState = null) {
 
     if (outcome.action === 'exit') { cleanup(); return outcome; }
     if (outcome.action === 'repeat') continue;
+    if (outcome.action === 'jumpto') {
+      state.current = outcome.target;
+      saveSnapshot(state);
+      continue;
+    }
 
     state.completed.push({ step_id: step.step_id, title: step.title });
 
@@ -354,17 +359,25 @@ export async function runSession(ctx, resumeState = null) {
     const tick = setInterval(() => { timerEl.textContent = fmtClock(Date.now() - pausedAt); }, 500);
 
     const choice = await new Promise((resolve) => {
-      document.getElementById('btn-resume').onclick = () => resolve('resume');
+      document.getElementById('btn-resume').onclick = () => resolve({ type: 'resume' });
       document.getElementById('btn-abandon').onclick = async () => {
-        const sure = await ui.modal('End this session? The procedure is not complete. This will be recorded.', ['END SESSION', 'STAY PAUSED']);
-        if (sure === 0) resolve('abandon');
+        const reason = await chooseAbandonReason();
+        if (reason !== null) resolve({ type: 'abandon', reason });
+      };
+      document.getElementById('btn-goto-step').onclick = async () => {
+        const target = await chooseJumpTarget();
+        if (target !== null) resolve({ type: 'jump', target });
+        else ui.show('screen-pause'); // cancelled — stay paused
       };
       document.getElementById('btn-pause-review').onclick = () => { ui.openReview('screen-pause'); };
     });
     clearInterval(tick);
 
-    if (choice === 'abandon') {
-      await ledger.append('session_abandoned', { session_id: sessionId, step_id: step.step_id, detail: { elapsed_pause_ms: Date.now() - pausedAt } });
+    if (choice.type === 'abandon') {
+      await ledger.append('session_abandoned', {
+        session_id: sessionId, step_id: step.step_id,
+        detail: { reason: choice.reason, elapsed_pause_ms: Date.now() - pausedAt }
+      });
       clearSnapshot();
       return { action: 'exit', reason: 'abandoned' };
     }
@@ -380,10 +393,79 @@ export async function runSession(ctx, resumeState = null) {
       return { action: 'exit', reason: 'restart_forced' };
     }
 
+    if (choice.type === 'jump') {
+      await ledger.append('step_jump', {
+        session_id: sessionId, step_id: step.step_id, method: 'tap',
+        detail: { from: step.step_id, to: choice.target, reason: 'TECH selected a different step' }
+      });
+      await ledger.append('interruption_end', { session_id: sessionId, step_id: step.step_id, detail: { pause_ms: elapsed, resumed_at: choice.target } });
+      return { action: 'jumpto', target: choice.target };
+    }
+
     ui.show('screen-session');
     if (state.completed.length > 0) await rapidReconfirm();
     await ledger.append('interruption_end', { session_id: sessionId, step_id: step.step_id, detail: { pause_ms: elapsed } });
     return { action: 'repeat' }; // re-present the current step in full
+  }
+
+  /* ---- END SESSION: record why. Returns reason string, or null if cancelled. ---- */
+  async function chooseAbandonReason() {
+    const options = ['EQUIPMENT MALFUNCTION', 'EMERGENCY', 'POWER OUTAGE', 'OTHER (STATE REASON)', 'CANCEL — STAY PAUSED'];
+    const pick = await ui.modal('Ending the session before completion. The reason will be recorded in the ledger:', options);
+    if (pick === 4) return null;
+    if (pick === 3) {
+      const text = await ui.modalInput('State the reason for ending the session:', 'reason');
+      if (text === null || text.trim() === '') return null;
+      return 'other: ' + text.trim();
+    }
+    return options[pick].toLowerCase();
+  }
+
+  /* ---- GO TO A DIFFERENT STEP: pick a step, hold to confirm. Returns step_id or null. ---- */
+  function chooseJumpTarget() {
+    return new Promise((resolve) => {
+      ui.show('screen-session');
+      pauseBtn.style.display = 'none';
+      progressEl.textContent = 'SELECT STEP';
+
+      body.innerHTML = `
+        <div class="step-card">
+          <div class="step-title">Go to a different step</div>
+          <p class="step-instruction">Select the step to continue from. The jump is recorded in the ledger. Guidance resumes at the selected step.</p>
+        </div>
+        <div id="jump-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <div id="jump-actions" style="display:flex;flex-direction:column;gap:10px;"></div>
+      `;
+
+      const list = document.getElementById('jump-list');
+      const actions = document.getElementById('jump-actions');
+      let selected = null;
+
+      kc.steps.forEach((s, i) => {
+        const row = document.createElement('button');
+        row.className = 'btn btn-secondary step-pick';
+        row.innerHTML = `<span class="step-num">${String(i + 1).padStart(2, '0')}</span> ${s.title}` +
+          (s.critical ? ' <span class="badge-critical">CRITICAL</span>' : '');
+        row.addEventListener('click', () => {
+          list.querySelectorAll('.step-pick').forEach((r) => r.classList.remove('selected'));
+          row.classList.add('selected');
+          selected = s.step_id;
+          hold.setDisabled(false);
+        });
+        list.appendChild(row);
+      });
+
+      const hold = ui.holdButton('START FROM SELECTED STEP', 'press and hold');
+      hold.setDisabled(true);
+      hold.onComplete(() => resolve(selected));
+      actions.appendChild(hold.el);
+
+      const cancel = document.createElement('button');
+      cancel.className = 'btn btn-tertiary';
+      cancel.textContent = 'CANCEL — BACK TO PAUSE';
+      cancel.addEventListener('click', () => resolve(null));
+      actions.appendChild(cancel);
+    });
   }
 
   /* ================= rapid reconfirmation ================= */
