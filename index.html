@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="description" content="LT — step-by-step guided procedure agent">
+  <title>LT</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+  <!-- ============ HOME ============ -->
+  <section id="screen-home" class="screen">
+    <header class="home-header">
+      <h1 class="app-title">LT</h1>
+      <div class="app-version" id="app-version">v0.1.0</div>
+      <div class="kc-title" id="home-kc-title"></div>
+    </header>
+    <div class="home-actions">
+      <button id="btn-start-session" class="btn btn-primary btn-big">START SESSION</button>
+      <button id="btn-review-mode" class="btn btn-secondary btn-big">REVIEW MODE</button>
+      <button id="btn-ledger" class="btn btn-tertiary">SESSION LEDGER</button>
+    </div>
+    <footer class="home-footer" id="home-status"></footer>
+  </section>
+
+  <!-- ============ REVIEW MODE ============ -->
+  <section id="screen-review" class="screen">
+    <header class="bar">
+      <button class="btn btn-back" data-back>&#8592; BACK</button>
+      <h2>REVIEW MODE</h2>
+    </header>
+    <p class="review-hint">Familiarize yourself with each step before work. Viewing is available at any time and never affects a session.</p>
+    <div id="review-list" class="review-list"></div>
+  </section>
+
+  <!-- ============ GATES ============ -->
+  <section id="screen-gate" class="screen">
+    <header class="bar">
+      <button id="btn-gate-abort" class="btn btn-back">&#10005; EXIT</button>
+      <h2 id="gate-title">PRE-SESSION GATE</h2>
+    </header>
+    <div id="gate-progress" class="gate-progress"></div>
+    <div id="gate-body" class="gate-body"></div>
+  </section>
+
+  <!-- ============ BLOCKED ============ -->
+  <section id="screen-blocked" class="screen">
+    <div class="blocked-wrap">
+      <div class="blocked-icon">&#9632;</div>
+      <h2>SESSION BLOCKED</h2>
+      <p id="blocked-reason"></p>
+      <p class="blocked-note">This event has been recorded in the session ledger.</p>
+      <button id="btn-blocked-home" class="btn btn-secondary btn-big">RETURN HOME</button>
+    </div>
+  </section>
+
+  <!-- ============ ACTIVE SESSION ============ -->
+  <section id="screen-session" class="screen sterile">
+    <header class="session-bar">
+      <div id="session-progress" class="session-progress"></div>
+      <button id="btn-pause" class="btn btn-pause">PAUSE</button>
+    </header>
+    <div id="session-body" class="session-body"></div>
+  </section>
+
+  <!-- ============ PAUSE ============ -->
+  <section id="screen-pause" class="screen sterile">
+    <div class="pause-wrap">
+      <h2>SESSION PAUSED</h2>
+      <div id="pause-timer" class="pause-timer">00:00</div>
+      <p id="pause-note" class="pause-note"></p>
+      <button id="btn-resume" class="btn btn-primary btn-big">RESUME</button>
+      <button id="btn-pause-review" class="btn btn-secondary">OPEN REVIEW MODE</button>
+      <button id="btn-abandon" class="btn btn-danger-ghost">END SESSION</button>
+    </div>
+  </section>
+
+  <!-- ============ COMPLETION SUMMARY ============ -->
+  <section id="screen-summary" class="screen">
+    <header class="bar"><h2>SESSION COMPLETE</h2></header>
+    <div id="summary-body" class="summary-body"></div>
+    <div class="summary-actions">
+      <button id="btn-summary-home" class="btn btn-primary btn-big">RETURN HOME</button>
+    </div>
+  </section>
+
+  <!-- ============ LEDGER ============ -->
+  <section id="screen-ledger" class="screen">
+    <header class="bar">
+      <button class="btn btn-back" data-back>&#8592; BACK</button>
+      <h2>SESSION LEDGER</h2>
+    </header>
+    <div class="ledger-actions">
+      <button id="btn-export" class="btn btn-primary">EXPORT LEDGER (lt-ledger.json)</button>
+      <button id="btn-verify" class="btn btn-secondary">VERIFY LEDGER INTEGRITY</button>
+      <div id="verify-result" class="verify-result"></div>
+    </div>
+    <div id="ledger-sessions" class="ledger-sessions"></div>
+  </section>
+
+  <!-- ============ MODAL ============ -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-card">
+      <div id="modal-text"></div>
+      <div id="modal-actions" class="modal-actions"></div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

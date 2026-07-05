@@ -1,0 +1,257 @@
+{
+  "kc_id": "KC-POOL-001",
+  "kc_version": "0.1.0",
+  "title": "Pool Cleaning Session",
+  "oc_name": "Mark",
+  "organization_name": "LT Pilot Program",
+  "equipment_labels": [
+    "SKIMMER",
+    "CLEANING HOSE",
+    "RETURN VALVE",
+    "DRAIN HOSE",
+    "CONTROL PANEL",
+    "PUMP FILTER",
+    "FILTER"
+  ],
+  "baseline_checklist": [
+    "Pump breaker is ON and no fault light is showing",
+    "Water level is at or above the skimmer midpoint"
+  ],
+  "interruption_threshold_minutes": 30,
+  "steps": [
+    {
+      "step_id": "S01",
+      "title": "Clean Skimmer",
+      "critical": false,
+      "equipment_label": "SKIMMER",
+      "instruction": "Remove skimmer lid and clean basket.",
+      "phraseology": "Step one. Clean skimmer. Remove the skimmer lid, and clean the basket. When complete, call out: Skimmer Ready.",
+      "required_callout": "Skimmer Ready",
+      "callout_keywords": ["skimmer", "ready"],
+      "critical_prerequisites": [],
+      "video": null,
+      "failure_note": null
+    },
+    {
+      "step_id": "S02",
+      "title": "Assemble hose attachments",
+      "critical": false,
+      "equipment_label": "CLEANING HOSE",
+      "instruction": "Unwind hose close to skimmer and attach cleaning head and pole.",
+      "phraseology": "Step two. Assemble hose attachments. Unwind the hose close to the skimmer. Attach the cleaning head and the pole. When complete, call out: Attachments Ready.",
+      "required_callout": "Attachments Ready",
+      "callout_keywords": ["attachments", "ready"],
+      "critical_prerequisites": [],
+      "video": null,
+      "failure_note": null
+    },
+    {
+      "step_id": "S03",
+      "title": "Submerge attachments",
+      "critical": false,
+      "equipment_label": "SKIMMER / CLEANING HOSE",
+      "instruction": "Drop the pole and hose assembly into the pool, remove air from hose, attach hose end underwater through skimmer to pump return line, closest to the house.",
+      "phraseology": "Step three. Submerge attachments. Drop the pole and hose assembly into the pool. Remove air from the hose. Attach the hose end underwater, through the skimmer, to the pump return line closest to the house. When complete, call out: Attachments Installed.",
+      "required_callout": "Attachments Installed",
+      "callout_keywords": ["attachments", "installed"],
+      "critical_prerequisites": [],
+      "video": "clips/S03.mp4",
+      "failure_note": null
+    },
+    {
+      "step_id": "S04",
+      "title": "Close Return Valve",
+      "critical": false,
+      "equipment_label": "RETURN VALVE",
+      "instruction": "Push down on red handle to close return valve completely.",
+      "phraseology": "Step four. Close return valve. Push down on the red handle, to close the return valve completely. When complete, call out: Valve Closed.",
+      "required_callout": "Valve Closed",
+      "callout_keywords": ["valve", "closed"],
+      "critical_prerequisites": [],
+      "video": "clips/S04.mp4",
+      "failure_note": null
+    },
+    {
+      "step_id": "S05",
+      "title": "Extend Drain Hose",
+      "critical": false,
+      "equipment_label": "DRAIN HOSE",
+      "instruction": "Unwind drain hose all the way to curb without kinks.",
+      "phraseology": "Step five. Extend drain hose. Unwind the drain hose all the way to the curb, without kinks. When complete, call out: Hose Extended.",
+      "required_callout": "Hose Extended",
+      "callout_keywords": ["hose", "extended"],
+      "critical_prerequisites": [],
+      "video": null,
+      "failure_note": null
+    },
+    {
+      "step_id": "S06",
+      "title": "Raise pump speed",
+      "critical": true,
+      "equipment_label": "CONTROL PANEL",
+      "instruction": "Touch left side of control panel screen twice, select 'filter pump', select 'custom', slide to select 70%.",
+      "phraseology": "Step six. Raise pump speed. Touch the left side of the control panel screen, twice. Select: filter pump. Select: custom. Slide to select seventy percent. When complete, call out: Pump Ready.",
+      "required_callout": "Pump Ready",
+      "callout_keywords": ["pump", "ready"],
+      "critical_prerequisites": [
+        "Hose attached to pump return line through skimmer",
+        "Return valve closed",
+        "Drain hose extended to curb, no kinks"
+      ],
+      "video": "clips/S06.mp4",
+      "failure_note": null
+    },
+    {
+      "step_id": "S07",
+      "title": "Clean Pool",
+      "critical": true,
+      "equipment_label": "SKIMMER",
+      "instruction": "Clean pool starting at skimmer. CRITICAL: actively watch for a decrease in jet flow indicating a clogged filter, which means moving to the next step IMMEDIATELY and QUICKLY to drain the filter. If the pool still needs further cleaning, return to step S04 AFTER the filter cleaning procedure S13.",
+      "phraseology": "Step seven. Clean pool. Begin cleaning at the skimmer. Actively watch for a decrease in jet flow. A decrease in jet flow indicates a clogged filter. If jet flow decreases, stop cleaning, and proceed immediately to the next step, to drain the filter. When the pool is clean, call out: Pool Clean.",
+      "required_callout": "Pool Clean",
+      "callout_keywords": ["pool", "clean"],
+      "critical_prerequisites": [
+        "Pump running at 70 percent",
+        "I will actively watch jet flow for any decrease (clog warning)"
+      ],
+      "video": null,
+      "failure_note": "If jet flow decreases, do not continue cleaning. Proceed immediately and quickly to Pump Shutdown to drain the filter.",
+      "alternate_confirm": {
+        "label": "FLOW DECREASED — PROCEED TO FILTER DRAIN",
+        "detail": "jet_flow_decreased",
+        "spoken": "Flow decrease acknowledged. Proceeding immediately to pump shutdown."
+      }
+    },
+    {
+      "step_id": "S08",
+      "title": "Pump Shutdown",
+      "critical": true,
+      "equipment_label": "CONTROL PANEL",
+      "instruction": "Go to control panel, press 'power' on bottom left, select 'shut down' from menu and wait for pump to stop.",
+      "phraseology": "Step eight. Pump shutdown. Go to the control panel. Press: power, on the bottom left. Select: shut down, from the menu. Wait for the pump to stop. When the pump has stopped, call out: Pump Off.",
+      "required_callout": "Pump OFF",
+      "callout_keywords": ["pump", "off"],
+      "critical_prerequisites": [
+        "Standing at the control panel",
+        "Ready for the pump to stop"
+      ],
+      "video": "clips/S08.mp4",
+      "failure_note": null
+    },
+    {
+      "step_id": "S09",
+      "title": "Clean Pump filter",
+      "critical": false,
+      "equipment_label": "PUMP FILTER",
+      "instruction": "Open pump counter-clockwise and remove basket to clean it, reassemble in reverse order.",
+      "phraseology": "Step nine. Clean pump filter. Open the pump, counter-clockwise. Remove the basket, and clean it. Reassemble in reverse order. When complete, call out: Pump Ready.",
+      "required_callout": "Pump Ready",
+      "callout_keywords": ["pump", "ready"],
+      "critical_prerequisites": [],
+      "video": "clips/S09.mp4",
+      "failure_note": null
+    },
+    {
+      "step_id": "S10",
+      "title": "Open Return Valve",
+      "critical": false,
+      "equipment_label": "RETURN VALVE",
+      "instruction": "Pull UP on red handle to open return valve completely.",
+      "phraseology": "Step ten. Open return valve. Pull up on the red handle, to open the return valve completely. When complete, call out: Valve Open.",
+      "required_callout": "Valve Open",
+      "callout_keywords": ["valve", "open"],
+      "critical_prerequisites": [],
+      "video": null,
+      "failure_note": null
+    },
+    {
+      "step_id": "S11",
+      "title": "Recirculate valve mode",
+      "critical": false,
+      "equipment_label": "FILTER",
+      "instruction": "Go to FILTER and select 'Recirculate' setting by pushing down on lever and while holding it down, rotate so the short end (notch) aligns at the 'recirculate' setting.",
+      "phraseology": "Step eleven. Recirculate valve mode. Go to the filter. Push down on the lever, and hold it down. While holding it down, rotate, so the short end, the notch, aligns at the recirculate setting. When complete, call out: Recirculate Ready.",
+      "required_callout": "Recirculate ready",
+      "callout_keywords": ["recirculate", "ready"],
+      "critical_prerequisites": [],
+      "video": "clips/S11.mp4",
+      "failure_note": null
+    },
+    {
+      "step_id": "S12",
+      "title": "Pump Start",
+      "critical": true,
+      "equipment_label": "CONTROL PANEL",
+      "instruction": "Ensure pump lid is closed and return valve open, go to Control Panel and select 'System Start', wait for pump to run at high speed and return to normal speed before doing anything. In case of a problem, immediately shut down power by switching off the PUMP breaker at the Electrical Panel beside Control Panel.",
+      "phraseology": "Step twelve. Pump start. Ensure the pump lid is closed, and the return valve is open. Go to the control panel, and select: system start. Wait for the pump to run at high speed, and return to normal speed, before doing anything. In case of a problem, immediately shut down power, by switching off the pump breaker, at the electrical panel beside the control panel. When the pump is at normal speed, call out: Pump Ready.",
+      "required_callout": "Pump Ready",
+      "callout_keywords": ["pump", "ready"],
+      "critical_prerequisites": [
+        "Pump lid closed",
+        "Return valve open",
+        "I know where the PUMP breaker is (Electrical Panel beside Control Panel) in case of a problem"
+      ],
+      "video": "clips/S12.mp4",
+      "failure_note": "In case of a problem, immediately shut down power by switching off the PUMP breaker at the Electrical Panel beside the Control Panel."
+    },
+    {
+      "step_id": "S13",
+      "title": "Clean Filter",
+      "critical": true,
+      "equipment_label": "FILTER",
+      "instruction": "While the pump is running, go to filter and select 'Backwash', then quickly go to Control Panel, touch left side of control panel screen twice, select 'filter pump', select 'custom', slide to select 85-90%, look at the glass behind the filter valve and wait until water flows clear, then immediately decrease pump speed to 50%, go back to filter and rotate valve back to 'Filter' setting.",
+      "phraseology": "Step thirteen. Clean filter. While the pump is running, go to the filter, and select: backwash. Then quickly go to the control panel. Touch the left side of the screen, twice. Select: filter pump. Select: custom. Slide to select eighty five to ninety percent. Look at the glass behind the filter valve. Wait until the water flows clear. Then immediately decrease pump speed to fifty percent. Go back to the filter, and rotate the valve back to the filter setting. When complete, call out: Filter Purge Complete.",
+      "required_callout": "Filter Purge complete",
+      "callout_keywords": ["filter", "purge", "complete"],
+      "critical_prerequisites": [
+        "Pump is running",
+        "Ready to move quickly from filter to control panel"
+      ],
+      "video": "clips/S13.mp4",
+      "failure_note": null,
+      "post_decision": {
+        "prompt": "Filter purge complete. Assess the pool. Does the pool need further cleaning?",
+        "options": [
+          {
+            "label": "POOL NEEDS FURTHER CLEANING — RETURN TO STEP 4",
+            "goto": "S04",
+            "detail": "loop_to_S04",
+            "spoken": "Returning to step four. Close return valve."
+          },
+          {
+            "label": "POOL IS CLEAN — PROCEED TO STEP 14",
+            "goto": "S14",
+            "detail": "proceed_to_S14",
+            "spoken": "Proceeding to step fourteen."
+          }
+        ]
+      }
+    },
+    {
+      "step_id": "S14",
+      "title": "Close Return Valve",
+      "critical": false,
+      "equipment_label": "RETURN VALVE",
+      "instruction": "Push down on red handle to close return valve 75%.",
+      "phraseology": "Step fourteen. Close return valve. Push down on the red handle, to close the return valve to seventy five percent. When complete, call out: Valve Closed.",
+      "required_callout": "Valve Closed",
+      "callout_keywords": ["valve", "closed"],
+      "critical_prerequisites": [],
+      "video": null,
+      "failure_note": null
+    },
+    {
+      "step_id": "S15",
+      "title": "Clean up",
+      "critical": false,
+      "equipment_label": "SKIMMER",
+      "instruction": "Disconnect hose from Skimmer and return all attachments and close the skimmer lid.",
+      "phraseology": "Step fifteen. Clean up. Disconnect the hose from the skimmer. Return all attachments. Close the skimmer lid. When complete, call out: Pool Ready.",
+      "required_callout": "Pool Ready",
+      "callout_keywords": ["pool", "ready"],
+      "critical_prerequisites": [],
+      "video": null,
+      "failure_note": null
+    }
+  ]
+}
