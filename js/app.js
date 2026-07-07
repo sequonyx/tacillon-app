@@ -158,6 +158,18 @@ async function boot() {
 
   // Service worker for offline app shell + installability
   if ('serviceWorker' in navigator) {
+    // When a new version finishes installing it takes control immediately
+    // (skipWaiting + clients.claim). Reload once so the fresh files show on
+    // THIS launch instead of the next one — but only from the home screen,
+    // never mid-session.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) return; // first-ever install: nothing old to replace
+      if (!document.getElementById('screen-home').classList.contains('active')) return;
+      reloaded = true;
+      location.reload();
+    });
     navigator.serviceWorker.register('sw.js').catch(() => { /* app still works online */ });
   }
 
