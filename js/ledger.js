@@ -6,6 +6,16 @@
 
 const STORE_KEY = 'lt_ledger_v1';
 
+/* Events that end a session's lifecycle. session_abandoned and
+   session_restart_forced are no longer written (v0.2+) but remain terminal so
+   sessions in pre-existing ledgers do not read as still open. */
+const TERMINAL_EVENTS = new Set([
+  'session_complete',
+  'session_closed',
+  'session_abandoned',
+  'session_restart_forced'
+]);
+
 // Canonical serialization: fixed key order so hashes are reproducible.
 function canonical(entry) {
   return JSON.stringify({
@@ -98,6 +108,51 @@ export class Ledger {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
 
+  /* Wipe the stored history and start a fresh chain. The new chain's first
+     entry records what was deleted, and the last hash of the old chain, so a
+     previously exported file can be matched to the ledger that replaced it. */
+  clear() {
+    this._queue = this._queue.then(async () => {
+      const deleted = this.entries.length;
+      const lastHash = deleted > 0 ? this.entries[deleted - 1].hash : null;
+      this.entries = [];
+      const entry = {
+        seq: 1,
+        timestamp_iso: new Date().toISOString(),
+        session_id: null,
+        event_type: 'ledger_cleared',
+        step_id: null,
+        method: 'tap',
+        detail: { deleted_entries: deleted, previous_chain_last_hash: lastHash },
+        prev_hash: 'GENESIS'
+      };
+      entry.hash = await sha256Hex(canonical(entry));
+      this.entries.push(entry);
+      this._save();
+      return entry;
+    });
+    return this._queue;
+  }
+
+  /* Lifecycle status of the most recent session in the ledger. Only the
+     newest session can still be open: new sessions cannot start while one is
+     unresolved, and sessions from ledgers written before the closure rule are
+     grandfathered. Returns null if no session has ever entered the ledger. */
+  latestSessionStatus() {
+    let id = null;
+    for (const e of this.entries) if (e.session_id) id = e.session_id;
+    if (!id) return null;
+    const list = this.entries.filter((e) => e.session_id === id);
+    const has = (t) => list.some((e) => e.event_type === t);
+    const terminal = list.some((e) => TERMINAL_EVENTS.has(e.event_type));
+    return {
+      session_id: id,
+      open: !terminal,
+      declined: has('gate_declined'),
+      lastEvent: list[list.length - 1]
+    };
+  }
+
   /* Group entries by session for the human-readable summary view. */
   sessionSummaries() {
     const by = new Map();
@@ -111,6 +166,7 @@ export class Ledger {
       const first = list[0];
       const last = list[list.length - 1];
       const confirms = list.filter((e) => e.event_type === 'step_confirmed');
+      const closedEv = list.filter((e) => e.event_type === 'session_closed').pop();
       out.push({
         session_id: id,
         started: first.timestamp_iso,
@@ -121,7 +177,8 @@ export class Ledger {
         tap: confirms.filter((e) => e.method === 'tap').length,
         interruptions: list.filter((e) => e.event_type === 'interruption_start').length,
         completed: list.some((e) => e.event_type === 'session_complete'),
-        blocked: list.some((e) => e.event_type === 'gate_declined')
+        blocked: list.some((e) => e.event_type === 'gate_declined'),
+        closed_reason: closedEv && closedEv.detail ? closedEv.detail.reason : null
       });
     }
     return out.reverse(); // newest first

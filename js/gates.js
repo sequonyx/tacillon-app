@@ -64,7 +64,20 @@ export async function runGates(ctx) {
     });
 
     if (ok) {
-      await ledger.append('gate_label_confirm', { session_id: sessionId, method: 'tap', detail: { label } });
+      /* The first successful label confirmation is the session's first ledger
+         entry — it carries the session context that session_start used to. */
+      const detail = ctx.sessionLogged
+        ? { label }
+        : {
+            label,
+            session_context: { kc_id: kc.kc_id, kc_version: kc.kc_version, app_version: ctx.appVersion }
+          };
+      await ledger.append('gate_label_confirm', { session_id: sessionId, method: 'tap', detail });
+      ctx.sessionLogged = true;
+    } else if (!ctx.sessionLogged) {
+      /* No label was ever confirmed: the session never entered the ledger,
+         so there is nothing to record and nothing to close out. */
+      return { passed: false, reason: `The label "${label}" could not be confirmed at the equipment. Verify you are at the correct equipment, then start a new session.` };
     } else {
       await ledger.append('gate_label_mismatch', { session_id: sessionId, detail: { label, reason: 'label missing or does not match' } });
       await ledger.append('gate_declined', {

@@ -3,9 +3,10 @@
 import { Ledger } from './ledger.js';
 import { runGates } from './gates.js';
 import { runSession, loadSnapshot, clearSnapshot } from './session.js';
+import { chooseClosureReason, appendSessionClosed } from './closure.js';
 import { renderReview } from './review.js';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.2.0';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
@@ -130,7 +131,16 @@ const ui = { show, holdButton, modal, modalInput, openReview };
 
 /* ---------------- boot ---------------- */
 
-const ctx = { kc: null, ledger: new Ledger(), ui, sessionId: null };
+/* sessionId is set only while a session flow is live, so nothing (e.g. a
+   review_view from the home screen) can attach a session to the ledger before
+   the first gate label confirm. pendingSessionId is the identity generated on
+   app open, held internally until a session actually starts. */
+const ctx = {
+  kc: null, ledger: new Ledger(), ui,
+  sessionId: null, pendingSessionId: null,
+  sessionLogged: false,   // set by gates.js at the first gate_label_confirm
+  appVersion: APP_VERSION
+};
 
 function newSessionId() {
   const t = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '');
@@ -139,6 +149,7 @@ function newSessionId() {
 
 async function boot() {
   document.getElementById('app-version').textContent = 'v' + APP_VERSION;
+  ctx.pendingSessionId = newSessionId(); // generated on app open, not yet in the ledger
 
   // Load the Knowledge Container
   try {
@@ -175,7 +186,7 @@ async function boot() {
 
   wireHome();
   show('screen-home');
-  await maybeOfferResume();
+  await resolveIncompleteSession();
 }
 
 function wireHome() {
@@ -192,10 +203,19 @@ function wireHome() {
   document.getElementById('btn-gate-abort').addEventListener('click', async () => {
     const sure = await modal('Exit the gate sequence? No session will start.', ['EXIT', 'CONTINUE GATES']);
     if (sure === 0) {
-      await ctx.ledger.append('gate_declined', {
-        session_id: ctx.sessionId,
-        detail: { gate: 'exit', reason: 'TECH exited the gate sequence' }
-      });
+      /* Before the first label confirm the session never entered the ledger —
+         exiting writes nothing. After it, the exit is a terminal path and
+         must close with a recorded reason. */
+      if (ctx.sessionLogged) {
+        await ctx.ledger.append('gate_declined', {
+          session_id: ctx.sessionId,
+          detail: { gate: 'exit', reason: 'TECH exited the gate sequence' }
+        });
+        const reason = await chooseClosureReason(ui);
+        await appendSessionClosed(ctx.ledger, {
+          session_id: ctx.sessionId, closed_from: 'gate_declined', reason
+        });
+      }
       location.reload();
     }
   });
@@ -203,6 +223,35 @@ function wireHome() {
   document.getElementById('btn-export').addEventListener('click', async () => {
     await ctx.ledger.append('export', { detail: { entries: ctx.ledger.entries.length } });
     ctx.ledger.export();
+  });
+
+  document.getElementById('btn-delete-history').addEventListener('click', async () => {
+    const entries = ctx.ledger.entries;
+    if (entries.length === 0 ||
+        (entries.length === 1 && entries[0].event_type === 'ledger_cleared')) {
+      await modal('There is no history to delete.', ['OK']);
+      return;
+    }
+    /* An export appends an 'export' event last, so anything after it means
+       there are entries no exported file contains. */
+    if (entries[entries.length - 1].event_type !== 'export') {
+      const pick = await modal(
+        'Some entries have not been exported. Deleting is permanent — export first to keep a copy.',
+        ['EXPORT NOW', 'DELETE WITHOUT EXPORTING', 'CANCEL']);
+      if (pick === 0) {
+        await ctx.ledger.append('export', { detail: { entries: entries.length } });
+        ctx.ledger.export();
+        return; // tap DELETE HISTORY again once the file is saved
+      }
+      if (pick === 2) return;
+    } else {
+      const pick = await modal(
+        'Delete all ledger history from this phone? Exported files are not affected. This cannot be undone.',
+        ['CANCEL', 'DELETE HISTORY']);
+      if (pick === 0) return;
+    }
+    await ctx.ledger.clear();
+    showLedgerScreen(); // re-render: list is empty again
   });
 
   document.getElementById('btn-verify').addEventListener('click', async () => {
@@ -223,14 +272,34 @@ function wireHome() {
 /* ---------------- session flow ---------------- */
 
 async function startSession() {
-  ctx.sessionId = newSessionId();
-  await ctx.ledger.append('session_start', {
-    session_id: ctx.sessionId,
-    detail: { kc_id: ctx.kc.kc_id, kc_version: ctx.kc.kc_version, app_version: APP_VERSION }
-  });
+  /* A new session cannot start while an incomplete one is unresolved. */
+  const resolved = await resolveIncompleteSession();
+  if (resolved === 'resumed') return; // the prior session ran instead
 
+  ctx.sessionId = ctx.pendingSessionId;
+  ctx.sessionLogged = false;
+  /* No ledger entry yet — the session enters the ledger at the first
+     successful gate_label_confirm, or not at all. */
+
+  await runGatedSession();
+}
+
+/* Gates, then the guided session. Used for new sessions and for continuing
+   a session that was interrupted during the gate sequence. */
+async function runGatedSession() {
   const gateResult = await runGates(ctx);
   if (!gateResult.passed) {
+    /* Terminal path: a session that entered the ledger must close with a
+       recorded reason, even when it ends at gate_declined. */
+    if (ctx.sessionLogged) {
+      const reason = await chooseClosureReason(ui, {
+        heading: 'The session ended at a gate. The closure reason will be recorded in the ledger:'
+      });
+      await appendSessionClosed(ctx.ledger, {
+        session_id: ctx.sessionId, closed_from: 'gate_declined', reason
+      });
+    }
+    endSessionContext();
     document.getElementById('blocked-reason').textContent = gateResult.reason;
     show('screen-blocked');
     return;
@@ -240,7 +309,14 @@ async function startSession() {
   finishSession(result);
 }
 
+function endSessionContext() {
+  ctx.sessionId = null;
+  ctx.sessionLogged = false;
+  ctx.pendingSessionId = newSessionId(); // fresh identity for the next session
+}
+
 function finishSession(result) {
+  endSessionContext();
   if (result.action === 'complete') {
     const s = result.summary;
     document.getElementById('summary-body').innerHTML = `
@@ -252,47 +328,99 @@ function finishSession(result) {
       <div class="summary-stat"><span class="k">Ledger</span><span class="v">recorded &amp; chained</span></div>
     `;
     show('screen-summary');
-  } else if (result.reason === 'restart_forced') {
-    document.getElementById('blocked-reason').textContent =
-      'The pause exceeded the time limit, so this session was closed. Start a new session — all gates will run again.';
-    show('screen-blocked');
   } else {
     show('screen-home');
   }
 }
 
-/* Offer to resume a session that was interrupted by an app close / reload. */
-async function maybeOfferResume() {
+/* ---------------- single active session + crash recovery ----------------
+
+   An incomplete session = started (present in the ledger) but neither
+   session_complete nor session_closed. It must be continued or closed out
+   (with a recorded reason) before anything else can start. */
+
+function findIncompleteSession() {
   const snap = loadSnapshot();
-  if (!snap) return;
+  const latest = ctx.ledger.latestSessionStatus();
 
-  const thresholdMs = (ctx.kc.interruption_threshold_minutes || 30) * 60 * 1000;
-  const elapsed = Date.now() - (snap.last_activity || 0);
+  if (snap) {
+    if (latest && latest.session_id === snap.session_id && !latest.open) {
+      clearSnapshot(); // terminal event already recorded — snapshot is stale
+    } else {
+      return { kind: 'resumable', snap };
+    }
+  }
+  if (latest && latest.open) {
+    return {
+      /* gate_declined already recorded but the app closed before the closure
+         reason was: only the reason is still owed. Otherwise the app closed
+         during the gate sequence, where no resumable state is persisted. */
+      kind: latest.declined ? 'needs_closure' : 'unresumable',
+      session_id: latest.session_id,
+      step_id: latest.lastEvent ? latest.lastEvent.step_id : null
+    };
+  }
+  return null;
+}
 
-  if (elapsed >= thresholdMs) {
-    await ctx.ledger.append('session_restart_forced', {
-      session_id: snap.session_id,
-      detail: { reason: 'app_closed_beyond_threshold', minutes: Math.round(elapsed / 60000) }
+/* Returns false (nothing to resolve), 'resumed', or 'closed'. */
+async function resolveIncompleteSession() {
+  const inc = findIncompleteSession();
+  if (!inc) return false;
+
+  if (inc.kind === 'resumable') {
+    const pick = await modal('Continue previous session?', ['CONTINUE', 'CLOSE OUT']);
+    if (pick === 0) {
+      ctx.sessionId = inc.snap.session_id;
+      ctx.sessionLogged = true;
+      await ctx.ledger.append('session_resumed', {
+        session_id: inc.snap.session_id, step_id: inc.snap.current, method: 'tap',
+        detail: { resumed_at_step: inc.snap.current, steps_already_confirmed: inc.snap.completed.length }
+      });
+      const result = await runSession(ctx, inc.snap);
+      finishSession(result);
+      return 'resumed';
+    }
+    const reason = await chooseClosureReason(ui, { allowCancel: true });
+    if (reason === null) return resolveIncompleteSession(); // backed out — the prompt is the only way past
+    await appendSessionClosed(ctx.ledger, {
+      session_id: inc.snap.session_id, step_id: inc.snap.current,
+      closed_from: 'resume_prompt', reason
     });
     clearSnapshot();
-    await modal('A previous session was interrupted for longer than ' +
-      (ctx.kc.interruption_threshold_minutes) + ' minutes and has been closed. Start a new session when ready.', ['UNDERSTOOD']);
-    return;
+    return 'closed';
   }
 
-  const pick = await modal('A session is in progress (interrupted ' + Math.max(1, Math.round(elapsed / 60000)) +
-    ' min ago). Resume with rapid reconfirmation?', ['RESUME SESSION', 'DISCARD SESSION']);
+  if (inc.kind === 'needs_closure') {
+    await modal('The previous session ended at a gate, but its closure reason was never recorded. Record it now.', ['RECORD REASON']);
+    const reason = await chooseClosureReason(ui);
+    await appendSessionClosed(ctx.ledger, {
+      session_id: inc.session_id, step_id: inc.step_id, closed_from: 'gate_declined', reason
+    });
+    return 'closed';
+  }
+
+  /* Interrupted during the gate sequence: gate progress is not persisted, so
+     Continue re-runs the gates from the start under the same session id
+     (founder decision, 2026-07-10). */
+  const pick = await modal('Continue previous session? It was interrupted during the pre-session gates, so the gates will run again from the start.', ['CONTINUE', 'CLOSE OUT']);
   if (pick === 0) {
-    ctx.sessionId = snap.session_id;
-    const result = await runSession(ctx, snap);
-    finishSession(result);
-  } else {
-    await ctx.ledger.append('session_abandoned', {
-      session_id: snap.session_id,
-      detail: 'discarded_after_app_reload'
+    ctx.sessionId = inc.session_id;
+    ctx.sessionLogged = true; // already in the ledger — keep its identity
+    await ctx.ledger.append('session_resumed', {
+      session_id: inc.session_id, method: 'tap',
+      detail: { resumed_at_step: null, resume_point: 'gates_rerun_from_start' }
     });
-    clearSnapshot();
+    await runGatedSession();
+    return 'resumed';
   }
+  const reason = await chooseClosureReason(ui, { allowCancel: true });
+  if (reason === null) return resolveIncompleteSession(); // backed out — the prompt is the only way past
+  await appendSessionClosed(ctx.ledger, {
+    session_id: inc.session_id, step_id: inc.step_id, closed_from: 'resume_prompt',
+    reason, extra: { interrupted_during: 'gates' }
+  });
+  return 'closed';
 }
 
 /* ---------------- ledger screen ---------------- */
@@ -305,7 +433,10 @@ function showLedgerScreen() {
   for (const s of sums) {
     const d = document.createElement('div');
     d.className = 'ledger-session-card';
-    const status = s.completed ? 'COMPLETED' : s.blocked ? 'BLOCKED AT GATE' : 'NOT COMPLETED';
+    const status = s.completed ? 'COMPLETED'
+      : s.closed_reason ? `CLOSED — ${s.closed_reason.toUpperCase()}`
+      : s.blocked ? 'BLOCKED AT GATE'
+      : 'NOT COMPLETED';
     d.innerHTML = `
       <h3>${s.session_id}</h3>
       <div class="meta">${new Date(s.started).toLocaleString()} — ${status}</div>

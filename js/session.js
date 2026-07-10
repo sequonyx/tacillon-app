@@ -4,6 +4,7 @@
    frames verification as the system doing its job — never doubt of the TECH. */
 
 import { speak, stopSpeaking, voiceSupported, VoiceListener } from './speech.js';
+import { chooseClosureReason, appendSessionClosed } from './closure.js';
 
 const SNAPSHOT_KEY = 'lt_active_session';
 
@@ -34,10 +35,11 @@ function fmtDuration(ms) {
   return min > 0 ? `${min} min ${sec} s` : `${sec} s`;
 }
 
+const JUMP_WARNING = 'You are skipping steps including critical safety checks. Proceeding accepts full responsibility for verifying these manually.';
+
 export async function runSession(ctx, resumeState = null) {
   const { kc, ledger, ui } = ctx;
   const stepById = new Map(kc.steps.map((s) => [s.step_id, s]));
-  const thresholdMs = (kc.interruption_threshold_minutes || 30) * 60 * 1000;
 
   const state = resumeState || {
     session_id: ctx.sessionId,
@@ -48,6 +50,10 @@ export async function runSession(ctx, resumeState = null) {
     started_at: Date.now()
   };
   const sessionId = state.session_id;
+
+  /* Persist state from the first moment: a crash at any point after the gates
+     must leave a session that can be continued at its last known step. */
+  if (!resumeState) saveSnapshot(state);
 
   const body = document.getElementById('session-body');
   const progressEl = document.getElementById('session-progress');
@@ -103,10 +109,9 @@ export async function runSession(ctx, resumeState = null) {
     document.getElementById('btn-begin').addEventListener('click', async () => {
       try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch { /* not fatal */ }
       await acquireWakeLock();
-      await ledger.append(resumeState ? 'interruption_end' : 'dnd_reminder',
-        resumeState
-          ? { session_id: sessionId, detail: 'resumed_from_app_reload' }
-          : { session_id: sessionId, detail: 'acknowledged' });
+      /* On resume, session_resumed has already been written at the
+         continue/close-out prompt — one event per lifecycle transition. */
+      if (!resumeState) await ledger.append('dnd_reminder', { session_id: sessionId, detail: 'acknowledged' });
       resolve();
     });
   });
@@ -410,48 +415,49 @@ export async function runSession(ctx, resumeState = null) {
     ui.show('screen-pause');
     const timerEl = document.getElementById('pause-timer');
     const noteEl = document.getElementById('pause-note');
-    noteEl.textContent = `Resume within ${kc.interruption_threshold_minutes} minutes for rapid reconfirmation. After that, the session restarts from the beginning.`;
+    noteEl.textContent = 'The session stays open until you resume it or end it with a recorded reason. Completed steps are reconfirmed on resume.';
     const tick = setInterval(() => { timerEl.textContent = fmtClock(Date.now() - pausedAt); }, 500);
 
     const choice = await new Promise((resolve) => {
       document.getElementById('btn-resume').onclick = () => resolve({ type: 'resume' });
       document.getElementById('btn-abandon').onclick = async () => {
-        const reason = await chooseAbandonReason();
+        const reason = await chooseClosureReason(ui, { allowCancel: true });
         if (reason !== null) resolve({ type: 'abandon', reason });
       };
       document.getElementById('btn-goto-step').onclick = async () => {
-        const target = await chooseJumpTarget();
-        if (target !== null) resolve({ type: 'jump', target });
+        const jump = await chooseJumpTarget(step);
+        if (jump !== null) resolve({ type: 'jump', ...jump });
         else ui.show('screen-pause'); // cancelled — stay paused
       };
       document.getElementById('btn-pause-review').onclick = () => { ui.openReview('screen-pause'); };
     });
     clearInterval(tick);
 
-    if (choice.type === 'abandon') {
-      await ledger.append('session_abandoned', {
-        session_id: sessionId, step_id: step.step_id,
-        detail: { reason: choice.reason, elapsed_pause_ms: Date.now() - pausedAt }
-      });
-      clearSnapshot();
-      return { action: 'exit', reason: 'abandoned' };
-    }
-
     const elapsed = Date.now() - pausedAt;
-    if (elapsed >= thresholdMs) {
-      await ledger.append('session_restart_forced', {
-        session_id: sessionId, step_id: step.step_id,
-        detail: { pause_minutes: Math.round(elapsed / 60000), threshold_minutes: kc.interruption_threshold_minutes }
+
+    if (choice.type === 'abandon') {
+      await appendSessionClosed(ledger, {
+        session_id: sessionId, step_id: step.step_id, closed_from: 'manual_abandon',
+        reason: choice.reason, extra: { elapsed_pause_ms: elapsed }
       });
       clearSnapshot();
-      await ui.modal('The pause exceeded ' + kc.interruption_threshold_minutes + ' minutes. To protect the procedure, the session must restart from the beginning, including all gates.', ['UNDERSTOOD']);
-      return { action: 'exit', reason: 'restart_forced' };
+      return { action: 'exit', reason: 'closed' };
     }
 
     if (choice.type === 'jump') {
       await ledger.append('step_jump', {
         session_id: sessionId, step_id: step.step_id, method: 'tap',
-        detail: { from: step.step_id, to: choice.target, reason: 'TECH selected a different step' }
+        detail: {
+          from: step.step_id,
+          to: choice.target,
+          reason: 'TECH selected a different step',
+          risk_accepted: true,
+          warning_text: JUMP_WARNING,
+          skipped_steps: choice.skipped,
+          skipped_critical_prereq_confirms: choice.skipped
+            .filter((s) => s.critical_prerequisites.length > 0)
+            .map((s) => ({ step_id: s.step_id, prerequisites: s.critical_prerequisites }))
+        }
       });
       await ledger.append('interruption_end', { session_id: sessionId, step_id: step.step_id, detail: { pause_ms: elapsed, resumed_at: choice.target } });
       return { action: 'jumpto', target: choice.target };
@@ -463,21 +469,82 @@ export async function runSession(ctx, resumeState = null) {
     return { action: 'repeat' }; // re-present the current step in full
   }
 
-  /* ---- END SESSION: record why. Returns reason string, or null if cancelled. ---- */
-  async function chooseAbandonReason() {
-    const options = ['EQUIPMENT MALFUNCTION', 'EMERGENCY', 'POWER OUTAGE', 'OTHER (STATE REASON)', 'CANCEL — STAY PAUSED'];
-    const pick = await ui.modal('Ending the session before completion. The reason will be recorded in the ledger:', options);
-    if (pick === 4) return null;
-    if (pick === 3) {
-      const text = await ui.modalInput('State the reason for ending the session:', 'reason');
-      if (text === null || text.trim() === '') return null;
-      return 'other: ' + text.trim();
+  /* ---- GO TO A DIFFERENT STEP: pick a step, accept the risk, execute.
+     Returns { target, skipped } or null if cancelled at any point. ---- */
+  async function chooseJumpTarget(fromStep) {
+    for (;;) {
+      const target = await pickJumpStep();
+      if (target === null) return null;
+      const skipped = computeSkippedSteps(fromStep.step_id, target);
+      const accepted = await confirmJumpRisk(target, skipped);
+      if (accepted) return { target, skipped };
+      // risk warning declined — back to the step list
     }
-    return options[pick].toLowerCase();
   }
 
-  /* ---- GO TO A DIFFERENT STEP: pick a step, hold to confirm. Returns step_id or null. ---- */
-  function chooseJumpTarget() {
+  /* Steps bypassed by jumping from the current (unconfirmed) step forward to
+     the target: everything in sequence order from current up to (excluding)
+     the target, minus steps already confirmed this session. Backward jumps
+     bypass nothing — those steps will be run again. */
+  function computeSkippedSteps(fromId, toId) {
+    const fromIdx = kc.steps.findIndex((s) => s.step_id === fromId);
+    const toIdx = kc.steps.findIndex((s) => s.step_id === toId);
+    if (toIdx <= fromIdx) return [];
+    const confirmed = new Set(state.completed.map((c) => c.step_id));
+    return kc.steps.slice(fromIdx, toIdx)
+      .filter((s) => !confirmed.has(s.step_id))
+      .map((s) => ({
+        step_id: s.step_id,
+        title: s.title,
+        critical: !!s.critical,
+        critical_prerequisites: s.critical_prerequisites || []
+      }));
+  }
+
+  /* Risk-acceptance warning shown before every jump. The ledger entry it
+     produces enumerates the skipped steps and their critical prerequisites,
+     so a reviewer needs no cross-reference to the KC. */
+  function confirmJumpRisk(target, skipped) {
+    return new Promise((resolve) => {
+      const targetIdx = kc.steps.findIndex((s) => s.step_id === target);
+      progressEl.textContent = 'CONFIRM JUMP';
+
+      const skippedHtml = skipped.length === 0
+        ? '<p class="step-instruction">No pending steps are bypassed by this jump.</p>'
+        : '<p class="step-instruction">Steps that will be skipped without confirmation:</p>' +
+          skipped.map((s) => `
+            <div class="failure-note">
+              ${s.step_id} — ${s.title}${s.critical ? ' <span class="badge-critical">CRITICAL</span>' : ''}
+              ${s.critical_prerequisites.length > 0
+                ? `<br>Critical prerequisites that will NOT be verified:<br>• ${s.critical_prerequisites.join('<br>• ')}`
+                : ''}
+            </div>`).join('');
+
+      body.innerHTML = `
+        <div class="step-card critical">
+          <div class="critical-banner">STEP JUMP — RISK ACCEPTANCE</div>
+          <div class="step-title">Jumping to step ${targetIdx + 1}</div>
+          <p class="step-instruction">${JUMP_WARNING}</p>
+          ${skippedHtml}
+        </div>
+        <div id="jump-warning-actions" style="display:flex;flex-direction:column;gap:10px;"></div>
+      `;
+      const actions = document.getElementById('jump-warning-actions');
+
+      const accept = ui.holdButton('I ACCEPT FULL RESPONSIBILITY — EXECUTE JUMP', 'press and hold', 'danger');
+      accept.onComplete(() => resolve(true));
+      actions.appendChild(accept.el);
+
+      const back = document.createElement('button');
+      back.className = 'btn btn-secondary';
+      back.textContent = 'GO BACK — DO NOT JUMP';
+      back.addEventListener('click', () => resolve(false));
+      actions.appendChild(back);
+    });
+  }
+
+  /* ---- step picker: returns step_id or null if cancelled. ---- */
+  function pickJumpStep() {
     return new Promise((resolve) => {
       ui.show('screen-session');
       pauseBtn.style.display = 'none';
