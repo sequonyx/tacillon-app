@@ -2,7 +2,7 @@
    Strategy: pre-cache the shell; cache-first for shell assets;
    video clips are NETWORK ONLY (too large to pre-cache; brief allows it). */
 
-const CACHE_NAME = 'lt-shell-v17';
+const CACHE_NAME = 'lt-shell-v18';
 
 const SHELL = [
   './',
@@ -13,6 +13,9 @@ const SHELL = [
   './js/sync.js',
   './js/builder.js',
   './js/vendor/supabase.js',
+  './js/vendor/qrcode.js',
+  './js/manual.js',
+  './js/publish.js',
   './js/ledger.js',
   './js/speech.js',
   './js/gates.js',

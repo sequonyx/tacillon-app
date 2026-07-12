@@ -434,6 +434,44 @@ textarea:focus { outline: 2px solid var(--accent); }
 .ledger-session-card h3 { font-size: 0.95rem; margin-bottom: 6px; }
 .ledger-session-card .meta { color: var(--text-dim); }
 
+/* ---------- product manual (customer view) ---------- */
+.manual-body {
+  display: flex; flex-direction: column; gap: 14px; padding-bottom: 24px;
+  max-width: 560px; width: 100%; align-self: center;
+}
+.manual-product { text-align: center; padding: 8px 0 4px; }
+.manual-product-name { font-size: 1.5rem; font-weight: 800; }
+.manual-product-sub { color: var(--text-dim); font-size: 0.8rem; letter-spacing: 0.18em; margin-top: 2px; }
+.section-row { display: flex; align-items: center; gap: 12px; text-align: left; padding: 18px; }
+.section-row .section-name { flex: 1; min-width: 0; font-size: 1.05rem; }
+.section-row .section-meta { color: var(--text-dim); font-size: 0.78rem; flex: none; }
+.section-row .section-arrow { color: var(--accent); font-size: 1.3rem; flex: none; line-height: 1; }
+.section-row.visited { border-color: var(--ok); }
+.protocol-box {
+  margin-top: 12px; padding: 12px 14px; border-left: 3px solid var(--danger);
+  background: rgba(255, 93, 93, 0.06); border-radius: 0 8px 8px 0;
+  font-size: 0.95rem; white-space: pre-wrap;
+}
+
+/* ---------- publish & QR (company) ---------- */
+.publish-body { display: flex; flex-direction: column; gap: 14px; padding-bottom: 24px; }
+.live-tag { color: var(--ok); font-weight: 700; }
+.link-row { display: flex; gap: 8px; }
+.link-row input {
+  flex: 1; min-width: 0; padding: 12px; font: inherit; font-size: 0.8rem;
+  color: var(--text-dim); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px;
+}
+.qr-card { background: #fff; border-radius: var(--radius); padding: 14px; align-self: flex-start; }
+.qr-card img { display: block; width: 232px; height: 232px; image-rendering: pixelated; }
+.reg-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  background: var(--bg-card); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 14px; font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.reg-row .reg-date { color: var(--text-dim); flex: none; }
+
 /* modal */
 .modal {
   position: fixed; inset: 0; z-index: 50;

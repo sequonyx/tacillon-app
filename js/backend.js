@@ -139,10 +139,17 @@ export function lastProfile() { return cacheGet(CACHE.lastProfile); }
 
 /* ---------------- knowledge containers ---------------- */
 
+const KC_COLS = 'id, kc_type, title, doc, updated_at, published, public_id';
+
 export function listKCs() {
   return fetchOrCache(CACHE.kcs, async () => {
+    /* Scoped to this enterprise explicitly: RLS also lets any signed-in user
+       read PUBLISHED product manuals (the public channel), and those must not
+       leak into another enterprise's library list. */
     const { data, error } = await client.from('kcs')
-      .select('id, kc_type, title, doc, updated_at').order('created_at');
+      .select(KC_COLS)
+      .eq('enterprise_id', (await getSession()).user.id)
+      .order('created_at');
     if (error) throw error;
     return data;
   });
@@ -154,7 +161,7 @@ export async function createKC({ title, kcType, doc, createdBy }) {
       title, kc_type: kcType, doc, created_by: createdBy || null,
       enterprise_id: (await getSession()).user.id
     })
-    .select('id, kc_type, title, doc, updated_at').single();
+    .select(KC_COLS).single();
   if (error) throw error;
   return data;
 }
@@ -163,7 +170,7 @@ export async function renameKC(id, title, doc) {
   const { data, error } = await client.from('kcs')
     .update({ title, doc })
     .eq('id', id)
-    .select('id, kc_type, title, doc, updated_at').single();
+    .select(KC_COLS).single();
   if (error) throw error;
   return data;
 }
@@ -201,6 +208,60 @@ export function cacheUpdateKC(row) {
   const i = rows.findIndex((r) => r.id === row.id);
   if (i >= 0) rows[i] = row; else rows.push(row);
   cacheSet(CACHE.kcs, rows);
+}
+
+/* ---------------- product manuals: public channel ----------------
+   A published product manual is readable by ANYONE holding its public_id —
+   these calls work with no login (RLS restricts them to published product
+   manuals and to insert-only registrations). */
+
+/* One published manual by its public link id. Returns null when the link is
+   wrong or the manual was unpublished (a malformed id is the same as wrong). */
+export async function fetchPublicManual(publicId) {
+  const { data, error } = await client.from('kcs')
+    .select('id, title, doc')
+    .eq('public_id', publicId)
+    .eq('published', true)
+    .limit(1);
+  if (error) {
+    if (error.code === '22P02') return null; // not a valid id — not a server problem
+    throw error;
+  }
+  return (data && data[0]) || null;
+}
+
+/* Warranty activation: the customer's email + the exact agreement text.
+   enterprise_id and kc_title are stamped server-side — nothing to send. */
+export async function insertRegistration({ kcId, email, agreementText, appVersion }) {
+  const { error } = await client.from('product_registrations')
+    .insert({ kc_id: kcId, email, agreement_text: agreementText, app_version: appVersion || null });
+  if (error) throw error;
+}
+
+/* ---- company side ---- */
+
+export async function getPublishState(kcDbId) {
+  const { data, error } = await client.from('kcs')
+    .select('published, public_id').eq('id', kcDbId).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function setPublished(kcDbId, published) {
+  const { data, error } = await client.from('kcs')
+    .update({ published }).eq('id', kcDbId)
+    .select('published, public_id').single();
+  if (error) throw error;
+  return data;
+}
+
+export async function listRegistrations(kcDbId) {
+  const { data, error } = await client.from('product_registrations')
+    .select('email, created_at')
+    .eq('kc_id', kcDbId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
 }
 
 /* ---------------- equipment library ---------------- */

@@ -8,8 +8,10 @@ import { renderReview } from './review.js';
 import * as backend from './backend.js';
 import * as sync from './sync.js';
 import { runBuilder } from './builder.js';
+import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
+import { runPublishScreen } from './publish.js';
 
-const APP_VERSION = '0.6.0';
+const APP_VERSION = '0.7.0';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
@@ -168,6 +170,19 @@ function newSessionId() {
 async function boot() {
   document.getElementById('app-version').textContent = 'v' + APP_VERSION;
   document.getElementById('auth-version').textContent = 'v' + APP_VERSION;
+
+  /* Customer channel: a ?m=<public_id> link (from a QR code on a product)
+     opens ONE published product manual — no login, no profiles, no library.
+     Everything else about the app stays out of the way. */
+  const publicManualId = new URLSearchParams(location.search).get('m');
+  if (publicManualId) {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => { /* still works online */ });
+    }
+    await runPublicManual(publicManualId, ui, APP_VERSION);
+    return;
+  }
+
   ctx.pendingSessionId = newSessionId(); // generated on app open, not yet in the ledger
 
   // Service worker for offline app shell + installability
@@ -383,7 +398,7 @@ function renderLibrary() {
 
 function openKC(row) {
   ctx.kc = row.doc;
-  ctx.kcRef = { id: row.id, title: row.title, kc_type: row.kc_type };
+  ctx.kcRef = { id: row.id, title: row.title, kc_type: row.kc_type, published: !!row.published };
   renderKcHome();
   show('screen-home');
 }
@@ -392,11 +407,21 @@ function renderKcHome() {
   const kc = ctx.kc;
   document.getElementById('home-kc-title').textContent = `${kc.title} — ${kc.kc_id} v${kc.kc_version}`;
   const empty = !kc.steps || kc.steps.length === 0;
+  /* A product manual is read by customers, not run by techs: VIEW MANUAL and
+     PUBLISH & QR CODE replace START SESSION / REVIEW MODE. */
+  const isManual = ctx.kcRef.kc_type === 'product_instructions';
+  document.getElementById('btn-start-session').hidden = isManual;
+  document.getElementById('btn-review-mode').hidden = isManual;
+  document.getElementById('btn-view-manual').hidden = !isManual;
+  document.getElementById('btn-publish-kc').hidden = !isManual;
   document.getElementById('btn-start-session').disabled = empty;
   document.getElementById('btn-review-mode').disabled = empty;
+  document.getElementById('btn-view-manual').disabled = empty;
   document.getElementById('home-status').textContent = empty
-    ? `No steps yet — the step builder arrives in an upcoming build · working as ${ctx.profileName}`
-    : `${kc.steps.length} steps · OC: ${kc.oc_name} · working as ${ctx.profileName}`;
+    ? `No steps yet — tap BUILD STEPS to author the first one · working as ${ctx.profileName}`
+    : isManual
+      ? `${kc.steps.length} steps · ${sectionsOf(kc).length} section${sectionsOf(kc).length === 1 ? '' : 's'} · ${ctx.kcRef.published ? 'LIVE to customers' : 'not published'} · working as ${ctx.profileName}`
+      : `${kc.steps.length} steps · OC: ${kc.oc_name} · working as ${ctx.profileName}`;
 }
 
 async function createNewKC(kcType) {
@@ -415,6 +440,10 @@ async function createNewKC(kcType) {
     voice_window_seconds: 15,
     steps: []
   };
+  if (kcType === 'product_instructions') {
+    doc.requires_safety_agreement = false; // switched on in PUBLISH & QR CODE
+    doc.safety_protocol_text = '';
+  }
   try {
     const row = await backend.createKC({ title: doc.title, kcType, doc, createdBy: ctx.profileId });
     libraryRows.push(row);
@@ -535,6 +564,22 @@ function wireStatic() {
 
   document.getElementById('btn-start-session').addEventListener('click', startSession);
   document.getElementById('btn-review-mode').addEventListener('click', () => openReview('screen-home'));
+  document.getElementById('btn-view-manual').addEventListener('click', async () => {
+    /* Company preview: exactly what a customer sees, minus the warranty gate
+       (the gate's text is visible on the publish screen). */
+    await runManualViewer(ctx.kc, { ui, title: ctx.kc.title, backTo: 'screen-home' });
+    show('screen-home');
+  });
+  document.getElementById('btn-publish-kc').addEventListener('click', async () => {
+    const res = await runPublishScreen(ctx);
+    if (res) {
+      ctx.kcRef.published = res.published;
+      const row = libraryRows.find((r) => r.id === ctx.kcRef.id);
+      if (row) { row.published = res.published; row.doc = ctx.kc; }
+    }
+    renderKcHome();
+    show('screen-home');
+  });
   document.getElementById('btn-ledger').addEventListener('click', showLedgerScreen);
 
   document.querySelectorAll('[data-back]').forEach((b) =>

@@ -88,6 +88,8 @@
     <div class="home-actions">
       <button id="btn-start-session" class="btn btn-primary btn-big">START SESSION</button>
       <button id="btn-review-mode" class="btn btn-secondary btn-big">REVIEW MODE</button>
+      <button id="btn-view-manual" class="btn btn-primary btn-big" hidden>VIEW MANUAL</button>
+      <button id="btn-publish-kc" class="btn btn-secondary btn-big" hidden>PUBLISH &amp; QR CODE</button>
       <button id="btn-build-steps" class="btn btn-secondary">BUILD STEPS</button>
       <button id="btn-rename-kc" class="btn btn-tertiary">RENAME THIS KC</button>
       <button id="btn-delete-kc" class="btn btn-danger-ghost">DELETE THIS KC</button>
@@ -184,6 +186,24 @@
     <div id="ledger-sessions" class="ledger-sessions"></div>
   </section>
 
+  <!-- ============ PRODUCT MANUAL (customer view + company preview) ============ -->
+  <section id="screen-manual" class="screen">
+    <header class="bar">
+      <button id="btn-manual-back" class="btn btn-back" hidden>&#8592; BACK</button>
+      <h2>USER MANUAL</h2>
+    </header>
+    <div id="manual-body" class="manual-body"></div>
+  </section>
+
+  <!-- ============ PUBLISH & QR CODE (company) ============ -->
+  <section id="screen-publish" class="screen">
+    <header class="bar">
+      <button id="btn-publish-back" class="btn btn-back">&#8592; DONE</button>
+      <h2>PUBLISH &amp; QR CODE</h2>
+    </header>
+    <div id="publish-body" class="publish-body"></div>
+  </section>
+
   <!-- ============ MODAL ============ -->
   <div id="modal" class="modal hidden">
     <div class="modal-card">
@@ -193,6 +213,7 @@
   </div>
 
   <script src="js/vendor/supabase.js"></script>
+  <script src="js/vendor/qrcode.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

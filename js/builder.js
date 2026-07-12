@@ -130,7 +130,7 @@ function home() {
     d.innerHTML = `
       <div class="card-main">
         <h3>${s.step_id} · ${escapeHtml(s.title)}</h3>
-        <div class="kc-meta">${s.phase ? String(s.phase).toUpperCase() + ' · ' : ''}${sevOf(s) !== 'standard' ? SEVERITY_BADGE[sevOf(s)] + ' · ' : ''}${s.equipment_label ? escapeHtml(s.equipment_label) + ' · ' : ''}${s.video ? 'video attached' : 'no video'} · ${stepStatus(s)}</div>
+        <div class="kc-meta">${s.section ? escapeHtml(s.section) + ' · ' : ''}${s.phase ? String(s.phase).toUpperCase() + ' · ' : ''}${sevOf(s) !== 'standard' ? SEVERITY_BADGE[sevOf(s)] + ' · ' : ''}${s.equipment_label ? escapeHtml(s.equipment_label) + ' · ' : ''}${s.video ? 'video attached' : 'no video'} · ${stepStatus(s)}</div>
       </div>
       <span class="card-edit">✎ EDIT</span>`;
     d.addEventListener('click', () => stepForm(null, i));
@@ -179,6 +179,7 @@ function stepForm(existingDraft, editIndex = null) {
       title: s.title, instruction: s.instruction, callout: s.required_callout,
       severity: sevOf(s), assertion: s.safety_assertion || '',
       phase: s.phase || null,
+      section: s.section || '',
       prereqs: (s.critical_prerequisites || []).join('\n'),
       equipment_id: s.equipment_id || null,
       videoBlob: null, videoType: null, videoSeconds: 0, videoRef: s.video || null
@@ -191,6 +192,8 @@ function stepForm(existingDraft, editIndex = null) {
       severity: 'standard', assertion: '',
       /* a new step usually continues the phase the author is working in */
       phase: prevStep && prevStep.phase ? prevStep.phase : 'connect',
+      /* likewise the manual section */
+      section: prevStep && prevStep.section ? prevStep.section : 'Getting started',
       prereqs: '',
       equipment_id: null, videoBlob: null, videoType: null, videoSeconds: 0, videoRef: null
     };
@@ -198,10 +201,15 @@ function stepForm(existingDraft, editIndex = null) {
   /* Drafts written before the severity tier carry only the boolean. */
   if (!d.severity) d.severity = d.critical ? 'critical' : 'standard';
   if (d.assertion == null) d.assertion = '';
+  if (d.section == null) d.section = ''; // drafts predating the section field
   const editing = d.editIndex != null;
   const n = editing ? d.editIndex + 1 : steps.length + 1;
   d.n = n; // step count may have changed since the draft was written
   const withPhases = state.ctx.kcRef.kc_type === 'dangerous_equipment';
+  /* Product manuals: steps group into SECTIONS the customer browses; there is
+     no spoken call-out — reading a manual is not an audited operation. */
+  const isManual = state.ctx.kcRef.kc_type === 'product_instructions';
+  const knownSections = [...new Set(steps.map((s) => (s.section || '').trim()).filter(Boolean))];
 
   const eq = d.equipment_id ? state.equipment.find((e) => e.id === d.equipment_id) : null;
   const videoNote = d.videoBlob
@@ -228,10 +236,16 @@ function stepForm(existingDraft, editIndex = null) {
       ${d.videoBlob || d.videoRef ? '<button class="btn btn-tertiary" id="f-video-remove">REMOVE VIDEO</button>' : ''}
       <div class="video-note" id="f-video-note">${videoNote}</div>
     </div>
+    ${isManual ? `
+    <div class="field">
+      <label for="f-section">Section — the group this step appears under in the manual (customers pick a section to read)</label>
+      <input id="f-section" type="text" list="f-section-list" value="${escapeHtml(d.section)}" placeholder="e.g. First-time setup">
+      <datalist id="f-section-list">${knownSections.map((s) => `<option value="${escapeHtml(s)}">`).join('')}</datalist>
+    </div>` : `
     <div class="field">
       <label for="f-callout">Completion call-out — what the TECH says out loud when this step is done</label>
       <input id="f-callout" type="text" value="${escapeHtml(d.callout)}" placeholder="e.g. Valve Closed">
-    </div>
+    </div>`}
     ${withPhases ? `
     <div class="field">
       <label>Phase of the operation</label>
@@ -261,15 +275,19 @@ function stepForm(existingDraft, editIndex = null) {
   const $ = (id) => els.body.querySelector(id);
 
   $('#f-title').addEventListener('input', (e) => { d.title = e.target.value; persistDraft(d); });
-  $('#f-title').addEventListener('blur', () => {
-    if (d.title.trim() && !d.callout) {
-      d.callout = `Step ${n} complete`;
-      $('#f-callout').value = d.callout;
-      persistDraft(d);
-    }
-  });
   $('#f-instr').addEventListener('input', (e) => { d.instruction = e.target.value; persistDraft(d); });
-  $('#f-callout').addEventListener('input', (e) => { d.callout = e.target.value; persistDraft(d); });
+  if (isManual) {
+    $('#f-section').addEventListener('input', (e) => { d.section = e.target.value; persistDraft(d); });
+  } else {
+    $('#f-title').addEventListener('blur', () => {
+      if (d.title.trim() && !d.callout) {
+        d.callout = `Step ${n} complete`;
+        $('#f-callout').value = d.callout;
+        persistDraft(d);
+      }
+    });
+    $('#f-callout').addEventListener('input', (e) => { d.callout = e.target.value; persistDraft(d); });
+  }
   els.body.querySelectorAll('[name="f-sev"]').forEach((r) => r.addEventListener('change', () => {
     d.severity = r.value;
     $('#f-prereq-field').hidden = d.severity === 'standard';
@@ -325,11 +343,16 @@ function keywords(callout) {
 }
 
 async function saveStep(d) {
+  const isManual = state.ctx.kcRef.kc_type === 'product_instructions';
   const title = d.title.trim();
   const instruction = d.instruction.trim();
-  const callout = d.callout.trim();
+  /* Manuals have no spoken call-out; a placeholder keeps the doc format valid
+     for every reader (nothing customer-facing ever shows it). */
+  const callout = d.callout.trim() || (isManual ? 'Continue' : '');
   if (!title || !instruction || !callout) {
-    await state.ctx.ui.modal('A step needs a title, an instruction, and a completion call-out before it can be saved.', ['OK']);
+    await state.ctx.ui.modal(isManual
+      ? 'A step needs a title and an instruction before it can be saved.'
+      : 'A step needs a title, an instruction, and a completion call-out before it can be saved.', ['OK']);
     return;
   }
   const severity = d.severity || 'standard';
@@ -378,6 +401,11 @@ async function saveStep(d) {
   } else if (prev && prev.phase) {
     step.phase = prev.phase; // never silently drop a hand-authored phase
   }
+  if (isManual) {
+    step.section = (d.section || '').trim() || null; // null renders as 'General'
+  } else if (prev && prev.section) {
+    step.section = prev.section; // never silently drop a hand-authored section
+  }
   /* hand-authored extras (branching, alternate confirms) survive an edit */
   if (prev && prev.post_decision) step.post_decision = prev.post_decision;
   if (prev && prev.alternate_confirm) step.alternate_confirm = prev.alternate_confirm;
@@ -397,10 +425,12 @@ function normalizeDoc() {
   const steps = state.doc.steps || [];
   const idMap = {};
   steps.forEach((s, i) => { idMap[s.step_id] = 'S' + String(i + 1).padStart(2, '0'); });
+  const isManual = state.doc.kc_type === 'product_instructions';
   steps.forEach((s, i) => {
     s.step_id = idMap[s.step_id];
     if (!(s.post_decision || s.alternate_confirm || s.failure_note)) {
-      s.phraseology = `Step ${i + 1}. ${s.title}. ${s.instruction}${/[.!?]$/.test(s.instruction) ? '' : '.'} When complete, call out: ${s.required_callout}.`;
+      s.phraseology = `Step ${i + 1}. ${s.title}. ${s.instruction}${/[.!?]$/.test(s.instruction) ? '' : '.'}`
+        + (isManual ? '' : ` When complete, call out: ${s.required_callout}.`);
     }
     if (s.post_decision && s.post_decision.options) {
       s.post_decision.options = s.post_decision.options.filter((o) => idMap[o.goto]);
