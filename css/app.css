@@ -119,6 +119,10 @@ html, body {
   max-height: 52vh;
 }
 .no-video { margin-top: 10px; color: var(--text-dim); font-size: 0.8rem; font-style: italic; }
+.manual-link {
+  display: block; margin-top: 10px; text-align: center; text-decoration: none;
+  font-size: 0.85rem; color: var(--accent); border-color: var(--accent-dim);
+}
 
 /* ---------- auth / profile / library ---------- */
 .auth-wrap {
@@ -471,6 +475,7 @@ textarea:focus { outline: 2px solid var(--accent); }
   overflow-wrap: anywhere;
 }
 .reg-row .reg-date { color: var(--text-dim); flex: none; }
+.reg-row .reg-emp { color: var(--text-dim); font-size: 0.82rem; }
 
 /* modal */
 .modal {

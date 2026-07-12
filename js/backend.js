@@ -230,11 +230,18 @@ export async function fetchPublicManual(publicId) {
   return (data && data[0]) || null;
 }
 
-/* Warranty activation: the customer's email + the exact agreement text.
-   enterprise_id and kc_title are stamped server-side — nothing to send. */
-export async function insertRegistration({ kcId, email, agreementText, appVersion }) {
+/* Warranty activation (kind 'warranty') or an employee's safety
+   acknowledgement (kind 'employee', with the employer's name). Either way:
+   the person's email + the exact agreement text. enterprise_id and kc_title
+   are stamped server-side — nothing to send. */
+export async function insertRegistration({ kcId, email, agreementText, appVersion, kind, employerName }) {
   const { error } = await client.from('product_registrations')
-    .insert({ kc_id: kcId, email, agreement_text: agreementText, app_version: appVersion || null });
+    .insert({
+      kc_id: kcId, email, agreement_text: agreementText,
+      app_version: appVersion || null,
+      kind: kind || 'warranty',
+      employer_name: employerName || null
+    });
   if (error) throw error;
 }
 
@@ -257,7 +264,7 @@ export async function setPublished(kcDbId, published) {
 
 export async function listRegistrations(kcDbId) {
   const { data, error } = await client.from('product_registrations')
-    .select('email, created_at')
+    .select('email, created_at, kind, employer_name')
     .eq('kc_id', kcDbId)
     .order('created_at', { ascending: false });
   if (error) throw error;
@@ -269,7 +276,7 @@ export async function listRegistrations(kcDbId) {
 export function listEquipment() {
   return fetchOrCache(CACHE.equipment, async () => {
     const { data, error } = await client.from('equipment')
-      .select('id, name, description, photo_path, identity_method, tag_value')
+      .select('id, name, description, photo_path, identity_method, tag_value, manual_url')
       .order('created_at');
     if (error) throw error;
     return data;

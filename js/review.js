@@ -10,8 +10,15 @@ export function renderReview(ctx) {
   const list = document.getElementById('review-list');
   list.innerHTML = '';
 
+  /* Equipment with a linked product manual (captured in the builder, carried
+     in the doc's manifest so it resolves offline-authored KCs too). */
+  const manifest = kc.equipment_manifest || [];
+
   kc.steps.forEach((step, i) => {
     const sev = sevOf(step);
+    const mEntry = step.equipment_label
+      ? manifest.find((m) => m.label === step.equipment_label && m.manual_url)
+      : null;
     const item = document.createElement('div');
     item.className = 'review-item'
       + (sev === 'critical_safety' ? ' critical safety' : sev === 'critical' ? ' critical' : '');
@@ -27,6 +34,17 @@ export function renderReview(ctx) {
       ${sev === 'critical_safety' && step.safety_assertion
         ? `<div class="review-assertion">Safety assertion: ${step.safety_assertion}</div>` : ''}
     `;
+
+    if (mEntry) {
+      /* Opens in a new tab — never navigates away from a paused session. */
+      const a = document.createElement('a');
+      a.className = 'btn btn-secondary manual-link';
+      a.href = mEntry.manual_url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = `📖 PRODUCT MANUAL — ${step.equipment_label}`;
+      item.appendChild(a);
+    }
 
     if (step.video) {
       const video = document.createElement('video');

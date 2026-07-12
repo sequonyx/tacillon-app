@@ -145,7 +145,7 @@ function home() {
     d.innerHTML = `
       <div class="card-main">
         <h3>${escapeHtml(eq.name)}</h3>
-        <div class="kc-meta">${eq.identity_method === 'none' ? 'no identity tag' : escapeHtml(eq.tag_value || '')} · ${equipmentStatus(eq)}</div>
+        <div class="kc-meta">${eq.identity_method === 'none' ? 'no identity tag' : escapeHtml(eq.tag_value || '')} · ${eq.manual_url ? 'manual linked · ' : ''}${equipmentStatus(eq)}</div>
       </div>
       <span class="card-edit">✎ EDIT</span>`;
     d.addEventListener('click', () => equipmentForm(() => home(), eq));
@@ -451,7 +451,8 @@ function normalizeDoc() {
       equipment_id: s.equipment_id || null,
       label: s.equipment_label,
       identity_method: rec ? rec.identity_method : 'none',
-      tag_value: rec && rec.identity_method !== 'none' ? (rec.tag_value || null) : null
+      tag_value: rec && rec.identity_method !== 'none' ? (rec.tag_value || null) : null,
+      manual_url: rec ? (rec.manual_url || null) : null
     });
   }
   state.doc.equipment_manifest = manifest;
@@ -504,9 +505,13 @@ function equipmentForm(onDone, existing = null) {
   const d = existing
     ? {
         photoBlob: null, name: existing.name, description: existing.description || '',
-        method: existing.identity_method, tag: existing.tag_value || ''
+        method: existing.identity_method, tag: existing.tag_value || '',
+        manualUrl: existing.manual_url || ''
       }
-    : { photoBlob: null, name: '', description: '', method: 'none', tag: '' };
+    : { photoBlob: null, name: '', description: '', method: 'none', tag: '', manualUrl: '' };
+  /* Equipment in a product manual doesn't link out to other manuals —
+     the manual-link field belongs to procedure / dangerous-equipment work. */
+  const withManualLink = state.ctx.kcRef.kc_type !== 'product_instructions';
 
   els.body.innerHTML = `
     <div class="gate-heading">${existing ? 'Edit equipment' : 'New equipment'}</div>
@@ -536,6 +541,13 @@ function equipmentForm(onDone, existing = null) {
       <input id="e-tag" type="text" value="${escapeHtml(d.tag)}" placeholder="the label text or QR/NFC payload">
       <button class="btn btn-secondary" id="e-scan" ${d.method === 'qr_nfc' && qrSupported() ? '' : 'hidden'}>SCAN QR CODE</button>
     </div>
+    ${withManualLink ? `
+    <div class="field">
+      <label for="e-manual">Product manual (optional) — scan the QR code on the product, or paste a link to its manual online</label>
+      <input id="e-manual" type="url" value="${escapeHtml(d.manualUrl)}" placeholder="https://…">
+      <button class="btn btn-secondary" id="e-manual-scan" ${qrSupported() ? '' : 'hidden'}>SCAN PRODUCT QR CODE</button>
+      <div class="video-note">Techs can open this manual from Review Mode wherever this equipment is used.</div>
+    </div>` : ''}
     <button class="btn btn-primary btn-big" id="e-save">${existing ? 'SAVE CHANGES' : 'SAVE EQUIPMENT'}</button>
     ${existing ? '<button class="btn btn-danger-ghost" id="e-delete">DELETE THIS EQUIPMENT</button>' : ''}
     <button class="btn btn-tertiary" id="e-cancel">CANCEL</button>
@@ -567,6 +579,19 @@ function equipmentForm(onDone, existing = null) {
     const value = await scanQR();
     if (value) { d.tag = value; $('#e-tag').value = value; }
   };
+  if (withManualLink) {
+    $('#e-manual').addEventListener('input', (e) => { d.manualUrl = e.target.value; });
+    $('#e-manual-scan').onclick = async () => {
+      const value = await scanQR();
+      if (!value) return;
+      if (!/^https?:\/\//i.test(value.trim())) {
+        await state.ctx.ui.modal('That QR code does not contain a link. Product-manual QR codes (like the ones this platform prints) carry a web address.', ['OK']);
+        return;
+      }
+      d.manualUrl = value.trim();
+      $('#e-manual').value = d.manualUrl;
+    };
+  }
 
   $('#e-save').onclick = async () => {
     if (!d.name.trim()) {
@@ -575,6 +600,11 @@ function equipmentForm(onDone, existing = null) {
     }
     if (d.method !== 'none' && !d.tag.trim()) {
       await state.ctx.ui.modal('Enter the tag value, or choose "No tag".', ['OK']);
+      return;
+    }
+    const manualUrl = (d.manualUrl || '').trim();
+    if (manualUrl && !/^https?:\/\//i.test(manualUrl)) {
+      await state.ctx.ui.modal('The product manual link must be a web address starting with https:// — scan the product’s QR code, or leave the field empty.', ['OK']);
       return;
     }
     const id = existing ? existing.id : crypto.randomUUID();
@@ -587,6 +617,9 @@ function equipmentForm(onDone, existing = null) {
       id, name: d.name.trim(), description: d.description.trim() || null,
       photo_path, identity_method: d.method,
       tag_value: d.method === 'none' ? null : d.tag.trim(),
+      /* when the field is hidden (product-manual builder) an edit must not
+         wipe a link that was captured elsewhere */
+      manual_url: withManualLink ? (manualUrl || null) : (existing ? existing.manual_url || null : null),
       created_by: existing ? existing.created_by : (state.ctx.profileId || null)
     };
     const i = state.equipment.findIndex((e) => e.id === id);
@@ -594,11 +627,13 @@ function equipmentForm(onDone, existing = null) {
     backend.cacheAddEquipment(rec);
     await sync.enqueue('equipment_upsert', rec);
 
-    /* A rename, tag, or identity-method change must flow into this KC's steps
-       and its Gate-0 manifest (labels + tag values live in the doc). */
+    /* A rename, tag, identity-method, or manual-link change must flow into
+       this KC's steps and its manifest (labels, tag values, and manual links
+       live in the doc so sessions work offline). */
     if (existing && (existing.name !== rec.name ||
         existing.identity_method !== rec.identity_method ||
-        existing.tag_value !== rec.tag_value)) {
+        existing.tag_value !== rec.tag_value ||
+        (existing.manual_url || null) !== rec.manual_url)) {
       let touched = false;
       for (const s of state.doc.steps || []) {
         if (s.equipment_id === id) { s.equipment_label = rec.name.toUpperCase(); touched = true; }

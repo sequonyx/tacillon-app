@@ -87,11 +87,18 @@ export async function runPublicManual(publicId, ui, appVersion) {
   await runManualViewer(row.doc, { ui, title: row.title });
 }
 
-/* ================= warranty-activation gate =================
-   Step A: to activate the warranty, the customer reads the safety protocol.
-   Step B: they enter their email and press-and-hold AGREE. The record
-   (email + the exact agreement text) is written server-side for the
-   manufacturer; the device remembers so the gate shows once. */
+/* ================= safety-protocol gate =================
+   The customer reads the safety protocol, then agrees as one of:
+   - the OWNER: their agreement activates the product's warranty; or
+   - an EMPLOYEE whose employer owns the product: they name the employer and
+     acknowledge they have read (or will read immediately, before using the
+     equipment) the full safety instructions.
+   Either way the record — email, kind, employer, and the exact agreement
+   text — is written server-side for the manufacturer, and the device
+   remembers so the gate shows once. */
+
+const EMPLOYEE_ACK =
+  'I have read — or will read immediately, and before using this equipment — the full safety instructions above, and I will follow them.';
 
 function warrantyGate(row, publicId, ui, appVersion) {
   const body = document.getElementById('manual-body');
@@ -103,63 +110,104 @@ function warrantyGate(row, publicId, ui, appVersion) {
         <div class="manual-product-sub">USER MANUAL</div>
       </div>
       <div class="step-card safety">
-        <div class="critical-banner safety">ACTIVATE YOUR WARRANTY</div>
-        <p class="step-instruction">To activate the warranty for this product, read the
-        safety protocol below and agree to follow it while using the product.</p>
+        <div class="critical-banner safety">SAFETY PROTOCOL</div>
+        <p class="step-instruction">Before the manual opens, read the safety protocol below.
+        You will agree to follow it while using this product.</p>
         <div class="protocol-box">${escapeHtml(protocol)}</div>
       </div>
       <div class="field">
-        <label for="gate-email">Your email — this registers your warranty with the manufacturer</label>
+        <label>Who is using this product?</label>
+        <label class="radio-item"><input type="radio" name="gate-who" value="warranty" checked>
+          <span>I bought it — <strong>activate my warranty</strong></span></label>
+        <label class="radio-item"><input type="radio" name="gate-who" value="employee">
+          <span>My <strong>employer</strong> owns it — I use it at work</span></label>
+      </div>
+      <div class="field" id="gate-employer-field" hidden>
+        <label for="gate-employer">Your employer — the company this product belongs to</label>
+        <input id="gate-employer" type="text" autocomplete="organization" placeholder="e.g. ACME Services LLC">
+      </div>
+      <div class="field">
+        <label for="gate-email" id="gate-email-label">Your email — this registers your warranty with the manufacturer</label>
         <input id="gate-email" type="email" autocomplete="email" placeholder="name@example.com">
       </div>
+      <label class="check-item assert-item" id="gate-ack-item" hidden>
+        <input type="checkbox" id="gate-ack"><span class="check-decl">${escapeHtml(EMPLOYEE_ACK)}</span>
+      </label>
       <div id="gate-msg" class="auth-msg"></div>
       <div id="gate-agree"></div>
-      <p class="attest-fineprint">Your email, the date, and the safety protocol you agreed to
-      are recorded with the manufacturer to activate your warranty.</p>
+      <p class="attest-fineprint">Your details, the date, and the safety protocol you agreed to
+      are recorded with the manufacturer.</p>
     `;
 
     const emailEl = document.getElementById('gate-email');
+    const employerEl = document.getElementById('gate-employer');
+    const ackEl = document.getElementById('gate-ack');
+    const ackItem = document.getElementById('gate-ack-item');
     const msgEl = document.getElementById('gate-msg');
     const agreeWrap = document.getElementById('gate-agree');
     let busy = false;
+    let hold = null;
 
-    /* A hold button fires once; each attempt (and each email edit) arms a
-       fresh one so a failed send can simply be retried. */
+    const mode = () => body.querySelector('[name="gate-who"]:checked').value;
+    const ready = () => {
+      if (!EMAIL_RE.test(emailEl.value.trim())) return false;
+      if (mode() === 'employee') return !!employerEl.value.trim() && ackEl.checked;
+      return true;
+    };
+
+    /* A hold button fires once; every mode switch, edit, or failed attempt
+       re-arms a fresh one so the gate can always be retried. */
     function arm() {
       agreeWrap.innerHTML = '';
-      const hold = ui.holdButton('AGREE & ACTIVATE WARRANTY', 'press and hold to agree');
-      hold.setDisabled(!EMAIL_RE.test(emailEl.value.trim()));
+      hold = ui.holdButton(
+        mode() === 'employee' ? 'AGREE & OPEN THE MANUAL' : 'AGREE & ACTIVATE WARRANTY',
+        'press and hold to agree');
+      hold.setDisabled(!ready());
       hold.onComplete(async () => {
         if (busy) return;
         busy = true;
+        const kind = mode();
         const email = emailEl.value.trim();
-        msgEl.textContent = 'Recording your warranty activation…';
+        const employerName = kind === 'employee' ? employerEl.value.trim() : null;
+        msgEl.textContent = 'Recording your agreement…';
         msgEl.className = 'auth-msg';
         try {
           await backend.insertRegistration({
-            kcId: row.id, email,
-            agreementText: protocol,
+            kcId: row.id, email, kind, employerName,
+            agreementText: kind === 'employee' ? `${protocol}\n\n${EMPLOYEE_ACK}` : protocol,
             appVersion
           });
           rememberAgreement(publicId, email);
-          msgEl.textContent = 'Warranty activated.';
+          msgEl.textContent = kind === 'employee' ? 'Acknowledgement recorded.' : 'Warranty activated.';
           msgEl.className = 'auth-msg ok';
           resolve();
         } catch {
           busy = false;
-          msgEl.textContent = 'Could not record the activation — check the connection and try again.';
+          msgEl.textContent = 'Could not record the agreement — check the connection and try again.';
           msgEl.className = 'auth-msg bad';
           arm();
         }
       });
       agreeWrap.appendChild(hold.el);
-      return hold;
     }
 
-    let hold = arm();
-    emailEl.addEventListener('input', () => {
-      if (!busy) hold.setDisabled(!EMAIL_RE.test(emailEl.value.trim()));
+    body.querySelectorAll('[name="gate-who"]').forEach((r) => r.addEventListener('change', () => {
+      const employee = mode() === 'employee';
+      document.getElementById('gate-employer-field').hidden = !employee;
+      ackItem.hidden = !employee;
+      document.getElementById('gate-email-label').textContent = employee
+        ? 'Your email — identifies who acknowledged the safety protocol'
+        : 'Your email — this registers your warranty with the manufacturer';
+      if (!busy) arm();
+    }));
+    emailEl.addEventListener('input', () => { if (!busy) hold.setDisabled(!ready()); });
+    employerEl.addEventListener('input', () => { if (!busy) hold.setDisabled(!ready()); });
+    ackEl.addEventListener('change', () => {
+      ackItem.classList.toggle('checked', ackEl.checked);
+      if (!busy) hold.setDisabled(!ready());
     });
+
+    arm();
   });
 }
 

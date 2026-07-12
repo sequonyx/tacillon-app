@@ -190,11 +190,15 @@ export async function runPublishScreen(ctx) {
     } else if (registrations.length === 0) {
       regSub.textContent = 'No registrations yet. Each customer who agrees to the safety protocol appears here.';
     } else {
-      regSub.textContent = `${registrations.length} customer${registrations.length === 1 ? '' : 's'} registered — these are your warranty and safety-agreement records.`;
+      const emp = registrations.filter((r) => r.kind === 'employee').length;
+      regSub.textContent = `${registrations.length} record${registrations.length === 1 ? '' : 's'} — warranty activations`
+        + (emp ? ` and ${emp} employee safety acknowledgement${emp === 1 ? '' : 's'}` : '')
+        + '. These are your liability records.';
       for (const r of registrations) {
         const d = document.createElement('div');
         d.className = 'reg-row';
-        d.innerHTML = `<span>${escapeHtml(r.email)}</span>
+        d.innerHTML = `<span>${escapeHtml(r.email)}${r.kind === 'employee'
+            ? `<span class="reg-emp"> · employee${r.employer_name ? ' at ' + escapeHtml(r.employer_name) : ''}</span>` : ''}</span>
           <span class="reg-date">${new Date(r.created_at).toLocaleDateString()}</span>`;
         regList.appendChild(d);
       }
