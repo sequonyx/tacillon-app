@@ -1,7 +1,7 @@
 {
-  "name": "LT — Guided Procedure Agent",
-  "short_name": "LT",
-  "description": "Step-by-step guided procedure agent. Deploy Agent prototype v0.1.",
+  "name": "Tacillon — Guided Procedure Agent",
+  "short_name": "Tacillon",
+  "description": "Step-by-step guided procedure agent.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

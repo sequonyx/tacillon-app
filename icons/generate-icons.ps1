@@ -1,4 +1,4 @@
-# Generates the LT app icons (192, 512, and maskable 512) using built-in Windows drawing (GDI+).
+# Generates the Tacillon app icons (192, 512, and maskable 512) using built-in Windows drawing (GDI+).
 # No external software required.
 
 Add-Type -AssemblyName System.Drawing
@@ -23,9 +23,9 @@ foreach ($spec in $specs) {
     # Dark background matching the app theme
     $g.Clear([System.Drawing.ColorTranslator]::FromHtml('#0b0f14'))
 
-    # "LT" text, centered, in the app accent blue
+    # "T" mark, centered, in the app accent blue
     $inner = $s * (1 - 2 * $spec.Pad)
-    $fontSize = [int]($inner * 0.42)
+    $fontSize = [int]($inner * 0.52)
     $font = New-Object System.Drawing.Font('Segoe UI', $fontSize, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
     $brush = New-Object System.Drawing.SolidBrush([System.Drawing.ColorTranslator]::FromHtml('#37b6ff'))
 
@@ -34,7 +34,7 @@ foreach ($spec in $specs) {
     $fmt.LineAlignment = 'Center'
 
     $rect = New-Object System.Drawing.RectangleF(0, 0, $s, $s)
-    $g.DrawString('LT', $font, $brush, $rect, $fmt)
+    $g.DrawString('T', $font, $brush, $rect, $fmt)
 
     # Thin square frame around the text
     $penWidth = [Math]::Max(2, $s * 0.015)

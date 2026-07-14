@@ -75,7 +75,7 @@ html, body {
 
 /* ---------- home ---------- */
 .home-header { text-align: center; padding: 12vh 0 6vh; }
-.app-title { font-size: 4.2rem; font-weight: 800; letter-spacing: 0.18em; }
+.app-title { font-size: 2.4rem; font-weight: 800; letter-spacing: 0.18em; }
 .app-version { color: var(--text-dim); font-size: 0.85rem; margin-top: 2px; }
 .kc-title { margin-top: 18px; color: var(--accent); font-size: 1.05rem; }
 .home-actions { display: flex; flex-direction: column; gap: 14px; max-width: 420px; width: 100%; margin: 0 auto; }
@@ -141,7 +141,7 @@ html, body {
 /* The login screen must fit a phone without scrolling: compress the big
    home-style header so the mode-toggle button stays on screen. */
 #screen-auth .home-header { padding: 4vh 0 3vh; }
-#screen-auth .app-title { font-size: 2.6rem; }
+#screen-auth .app-title { font-size: 1.6rem; }
 
 .pw-row { display: flex; gap: 8px; }
 .pw-row input { flex: 1; min-width: 0; }

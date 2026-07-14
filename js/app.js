@@ -11,7 +11,7 @@ import { runBuilder } from './builder.js';
 import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
 
-const APP_VERSION = '0.8.0';
+const APP_VERSION = '0.9.0';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
@@ -164,7 +164,7 @@ function escapeHtml(s) {
 
 function newSessionId() {
   const t = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '');
-  return `LT-${t}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+  return `TAC-${t}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 }
 
 async function boot() {
