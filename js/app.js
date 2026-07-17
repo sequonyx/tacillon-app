@@ -11,7 +11,7 @@ import { runBuilder } from './builder.js';
 import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
 
-const APP_VERSION = '0.9.4';
+const APP_VERSION = '0.9.5';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
@@ -205,17 +205,23 @@ async function boot() {
 
   wireStatic();
 
-  /* Arriving from a password-reset email: supabase-js reads the recovery
-     token out of the URL and fires this during (or just after) getSession.
-     The flag stops the normal boot path from stomping the reset screen. */
-  let recoveryMode = false;
+  /* Arriving from a password-reset email: the reset link signs the user in,
+     and the app must demand a new password instead of proceeding. The URL
+     marker is captured in backend.js before supabase-js strips it; the
+     sessionStorage flag keeps the demand alive across any same-tab reload
+     (e.g. the service-worker update reload). The PASSWORD_RECOVERY event is
+     kept as a fallback for timings where the marker was missed. */
+  if (backend.BOOT_RECOVERY) sessionStorage.setItem('tac_pw_recovery', '1');
+  let recoveryMode = sessionStorage.getItem('tac_pw_recovery') === '1';
   backend.onPasswordRecovery(() => {
+    sessionStorage.setItem('tac_pw_recovery', '1');
     recoveryMode = true;
     show('screen-resetpw');
   });
 
   const session = await backend.getSession();
-  if (recoveryMode) return;
+  if (recoveryMode && session) { show('screen-resetpw'); return; }
+  if (recoveryMode) sessionStorage.removeItem('tac_pw_recovery'); // link expired or already used — normal login
   if (!session) { setAuthMode('login'); show('screen-auth'); return; }
   await enterProfileScreen();
 }
@@ -297,6 +303,7 @@ async function submitNewPassword() {
   resetPwMsg('Working…');
   try {
     await backend.updatePassword(pw);
+    sessionStorage.removeItem('tac_pw_recovery');
     document.getElementById('resetpw-password').value = '';
     resetPwMsg('');
     await modal('Password updated. You are logged in.', ['OK']);
@@ -588,6 +595,7 @@ function wireStatic() {
   document.getElementById('btn-resetpw-cancel').addEventListener('click', async () => {
     /* The recovery link already signed them in — cancelling just skips the
        password change and carries on into the app. */
+    sessionStorage.removeItem('tac_pw_recovery');
     await enterProfileScreen();
   });
   document.getElementById('btn-auth-google').addEventListener('click', async () => {

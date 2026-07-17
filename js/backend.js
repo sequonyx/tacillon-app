@@ -10,6 +10,13 @@
 const SUPABASE_URL = 'https://cokzpmtqhejefcevvfhg.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_WaPqCeQna6jfuyxL9CfDlg_NaArWsg0';
 
+/* Captured BEFORE the client is created: supabase-js strips the recovery
+   token out of the URL as it signs the arrival in, and it can finish doing so
+   before app.js boots — so this constant, not the PASSWORD_RECOVERY event, is
+   the reliable record that this launch came from a password-reset email. */
+export const BOOT_RECOVERY =
+  /type=recovery/.test(location.hash) || /type=recovery/.test(location.search);
+
 const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /* ---------------- local cache ---------------- */
