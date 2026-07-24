@@ -23,7 +23,7 @@ function escapeHtml(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-export async function runBuilder(ctx) {
+async function initState(ctx, view) {
   els = {
     syncline: document.getElementById('builder-sync'),
     body: document.getElementById('builder-body'),
@@ -44,10 +44,15 @@ export async function runBuilder(ctx) {
     uid: await backend.userId(),
     equipment,
     pendingOps,
-    view: 'home'
+    view
   };
+}
+
+export async function runBuilder(ctx) {
+  await initState(ctx, 'home');
   const unsubscribe = sync.onSyncChange(onSync);
 
+  document.getElementById('builder-title').textContent = 'STEP BUILDER';
   ctx.ui.show('screen-builder');
   const finished = new Promise((resolve) => { state.finish = resolve; });
   els.done.onclick = () => state.finish();
@@ -65,6 +70,30 @@ export async function runBuilder(ctx) {
   await finished;
   unsubscribe();
   sync.kick();
+}
+
+/* Standalone equipment editor — VIEW MANUALS jumps straight to the equipment
+   form without entering the builder home. Resolves with the saved record, or
+   null on cancel/delete. */
+export async function runEquipmentEditor(ctx, equipmentId = null) {
+  await initState(ctx, 'equipment');
+  const unsubscribe = sync.onSyncChange(onSync);
+
+  document.getElementById('builder-title').textContent = 'EQUIPMENT';
+  ctx.ui.show('screen-builder');
+  const finished = new Promise((resolve) => { state.finish = resolve; });
+  els.done.onclick = () => state.finish(null); // back arrow = leave without saving
+  renderSyncLine();
+
+  const existing = equipmentId
+    ? state.equipment.find((e) => e.id === equipmentId) || null
+    : null;
+  equipmentForm((rec) => state.finish(rec), existing);
+
+  const rec = await finished;
+  unsubscribe();
+  sync.kick();
+  return rec;
 }
 
 /* ---------------- sync status ---------------- */
@@ -509,9 +538,6 @@ function equipmentForm(onDone, existing = null) {
         manualUrl: existing.manual_url || ''
       }
     : { photoBlob: null, name: '', description: '', method: 'none', tag: '', manualUrl: '' };
-  /* Equipment in a product manual doesn't link out to other manuals —
-     the manual-link field belongs to procedure / dangerous-equipment work. */
-  const withManualLink = state.ctx.kcRef.kc_type !== 'product_instructions';
 
   els.body.innerHTML = `
     <div class="gate-heading">${existing ? 'Edit equipment' : 'New equipment'}</div>
@@ -541,13 +567,12 @@ function equipmentForm(onDone, existing = null) {
       <input id="e-tag" type="text" value="${escapeHtml(d.tag)}" placeholder="the label text or QR/NFC payload">
       <button class="btn btn-secondary" id="e-scan" ${d.method === 'qr_nfc' && qrSupported() ? '' : 'hidden'}>SCAN QR CODE</button>
     </div>
-    ${withManualLink ? `
     <div class="field">
       <label for="e-manual">Product manual (optional) — scan the QR code on the product, or paste a link to its manual online</label>
       <input id="e-manual" type="url" value="${escapeHtml(d.manualUrl)}" placeholder="https://…">
       <button class="btn btn-secondary" id="e-manual-scan" ${qrSupported() ? '' : 'hidden'}>SCAN PRODUCT QR CODE</button>
-      <div class="video-note">Techs can open this manual from Review Mode wherever this equipment is used.</div>
-    </div>` : ''}
+      <div class="video-note">Techs can open this manual from VIEW MANUALS and from Review Mode wherever this equipment is used.</div>
+    </div>
     <button class="btn btn-primary btn-big" id="e-save">${existing ? 'SAVE CHANGES' : 'SAVE EQUIPMENT'}</button>
     ${existing ? '<button class="btn btn-danger-ghost" id="e-delete">DELETE THIS EQUIPMENT</button>' : ''}
     <button class="btn btn-tertiary" id="e-cancel">CANCEL</button>
@@ -579,19 +604,17 @@ function equipmentForm(onDone, existing = null) {
     const value = await scanQR();
     if (value) { d.tag = value; $('#e-tag').value = value; }
   };
-  if (withManualLink) {
-    $('#e-manual').addEventListener('input', (e) => { d.manualUrl = e.target.value; });
-    $('#e-manual-scan').onclick = async () => {
-      const value = await scanQR();
-      if (!value) return;
-      if (!/^https?:\/\//i.test(value.trim())) {
-        await state.ctx.ui.modal('That QR code does not contain a link. Product-manual QR codes (like the ones this platform prints) carry a web address.', ['OK']);
-        return;
-      }
-      d.manualUrl = value.trim();
-      $('#e-manual').value = d.manualUrl;
-    };
-  }
+  $('#e-manual').addEventListener('input', (e) => { d.manualUrl = e.target.value; });
+  $('#e-manual-scan').onclick = async () => {
+    const value = await scanQR();
+    if (!value) return;
+    if (!/^https?:\/\//i.test(value.trim())) {
+      await state.ctx.ui.modal('That QR code does not contain a link. Product-manual QR codes (like the ones this platform prints) carry a web address.', ['OK']);
+      return;
+    }
+    d.manualUrl = value.trim();
+    $('#e-manual').value = d.manualUrl;
+  };
 
   $('#e-save').onclick = async () => {
     if (!d.name.trim()) {
@@ -617,9 +640,7 @@ function equipmentForm(onDone, existing = null) {
       id, name: d.name.trim(), description: d.description.trim() || null,
       photo_path, identity_method: d.method,
       tag_value: d.method === 'none' ? null : d.tag.trim(),
-      /* when the field is hidden (product-manual builder) an edit must not
-         wipe a link that was captured elsewhere */
-      manual_url: withManualLink ? (manualUrl || null) : (existing ? existing.manual_url || null : null),
+      manual_url: manualUrl || null,
       created_by: existing ? existing.created_by : (state.ctx.profileId || null)
     };
     const i = state.equipment.findIndex((e) => e.id === id);

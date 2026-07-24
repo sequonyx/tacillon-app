@@ -7,11 +7,11 @@ import { chooseClosureReason, appendSessionClosed } from './closure.js';
 import { renderReview } from './review.js';
 import * as backend from './backend.js';
 import * as sync from './sync.js';
-import { runBuilder } from './builder.js';
+import { runBuilder, runEquipmentEditor } from './builder.js';
 import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
 
-const APP_VERSION = '0.9.6';
+const APP_VERSION = '0.10.0';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
@@ -460,21 +460,67 @@ function renderKcHome() {
   const kc = ctx.kc;
   document.getElementById('home-kc-title').textContent = `${kc.title} — ${kc.kc_id} v${kc.kc_version}`;
   const empty = !kc.steps || kc.steps.length === 0;
-  /* A product manual is read by customers, not run by techs: VIEW MANUAL and
-     PUBLISH & QR CODE replace START SESSION / REVIEW MODE. */
+  /* A product manual is read by customers, not run by techs: PREVIEW CUSTOMER
+     MANUAL and PUBLISH & QR CODE replace START SESSION / REVIEW MODE.
+     VIEW MANUALS (equipment-manual quick reference) shows for every type. */
   const isManual = ctx.kcRef.kc_type === 'product_instructions';
   document.getElementById('btn-start-session').hidden = isManual;
   document.getElementById('btn-review-mode').hidden = isManual;
-  document.getElementById('btn-view-manual').hidden = !isManual;
+  document.getElementById('btn-preview-manual').hidden = !isManual;
   document.getElementById('btn-publish-kc').hidden = !isManual;
   document.getElementById('btn-start-session').disabled = empty;
   document.getElementById('btn-review-mode').disabled = empty;
-  document.getElementById('btn-view-manual').disabled = empty;
+  document.getElementById('btn-preview-manual').disabled = empty;
   document.getElementById('home-status').textContent = empty
     ? `No steps yet — tap BUILD STEPS to author the first one · working as ${ctx.profileName}`
     : isManual
       ? `${kc.steps.length} steps · ${sectionsOf(kc).length} section${sectionsOf(kc).length === 1 ? '' : 's'} · ${ctx.kcRef.published ? 'LIVE to customers' : 'not published'} · working as ${ctx.profileName}`
       : `${kc.steps.length} steps · OC: ${kc.oc_name} · working as ${ctx.profileName}`;
+}
+
+/* ---------------- equipment manuals (VIEW MANUALS) ---------------- */
+
+/* Quick-reference list of the user manuals linked to the equipment this guide
+   touches (the doc's equipment_manifest, so it resolves offline). Tapping an
+   item opens the equipment form to add or change its manual link. */
+function renderManualsScreen() {
+  const manifest = (ctx.kc && ctx.kc.equipment_manifest) || [];
+  const list = document.getElementById('manuals-list');
+  list.innerHTML = manifest.length === 0
+    ? '<p class="screen-sub">No equipment in this guide yet. Equipment linked to steps in BUILD STEPS appears here, with its manual.</p>'
+    : '';
+  for (const m of manifest) {
+    const item = document.createElement('div');
+    item.className = 'review-item';
+    item.innerHTML = `<h3><span>${escapeHtml(m.label)}</span></h3>`;
+    if (m.manual_url) {
+      /* Opens in a new tab — the guide stays where it is. */
+      const a = document.createElement('a');
+      a.className = 'btn btn-secondary manual-link';
+      a.href = m.manual_url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = `📖 OPEN MANUAL — ${m.label}`;
+      item.appendChild(a);
+    } else {
+      const note = document.createElement('div');
+      note.className = 'no-video';
+      note.textContent = 'No manual linked yet.';
+      item.appendChild(note);
+    }
+    if (m.equipment_id) {
+      const edit = document.createElement('button');
+      edit.className = 'btn btn-tertiary';
+      edit.textContent = m.manual_url ? 'EDIT EQUIPMENT / MANUAL LINK' : '+ ADD MANUAL LINK';
+      edit.addEventListener('click', async () => {
+        await runEquipmentEditor(ctx, m.equipment_id);
+        renderManualsScreen();
+        show('screen-manuals');
+      });
+      item.appendChild(edit);
+    }
+    list.appendChild(item);
+  }
 }
 
 async function createNewKC(kcType) {
@@ -650,7 +696,21 @@ function wireStatic() {
 
   document.getElementById('btn-start-session').addEventListener('click', startSession);
   document.getElementById('btn-review-mode').addEventListener('click', () => openReview('screen-home'));
-  document.getElementById('btn-view-manual').addEventListener('click', async () => {
+  document.getElementById('btn-view-manual').addEventListener('click', () => {
+    renderManualsScreen();
+    show('screen-manuals');
+  });
+  document.getElementById('btn-manuals-back').addEventListener('click', () => show('screen-home'));
+  document.getElementById('btn-manuals-add-eq').addEventListener('click', async () => {
+    /* Same capture form as + ADD EQUIPMENT in the Step Builder. */
+    const rec = await runEquipmentEditor(ctx);
+    renderManualsScreen();
+    show('screen-manuals');
+    if (rec && !((ctx.kc.equipment_manifest || []).some((m) => m.equipment_id === rec.id))) {
+      await modal(`"${rec.name}" was saved to the enterprise equipment library. It will appear in this list once a step in BUILD STEPS uses it.`, ['OK']);
+    }
+  });
+  document.getElementById('btn-preview-manual').addEventListener('click', async () => {
     /* Company preview: exactly what a customer sees, minus the warranty gate
        (the gate's text is visible on the publish screen). */
     await runManualViewer(ctx.kc, { ui, title: ctx.kc.title, backTo: 'screen-home' });

@@ -110,8 +110,9 @@
     <div class="home-actions">
       <button id="btn-start-session" class="btn btn-primary btn-big">START SESSION</button>
       <button id="btn-review-mode" class="btn btn-secondary btn-big">REVIEW MODE</button>
-      <button id="btn-view-manual" class="btn btn-primary btn-big" hidden>VIEW MANUAL</button>
+      <button id="btn-preview-manual" class="btn btn-primary btn-big" hidden>PREVIEW CUSTOMER MANUAL</button>
       <button id="btn-publish-kc" class="btn btn-secondary btn-big" hidden>PUBLISH &amp; QR CODE</button>
+      <button id="btn-view-manual" class="btn btn-secondary btn-big">VIEW MANUALS</button>
       <button id="btn-build-steps" class="btn btn-secondary">BUILD STEPS</button>
       <button id="btn-rename-kc" class="btn btn-tertiary">RENAME THIS GUIDE</button>
       <button id="btn-delete-kc" class="btn btn-danger-ghost">DELETE THIS GUIDE</button>
@@ -123,7 +124,7 @@
   <section id="screen-builder" class="screen">
     <header class="bar">
       <button id="btn-builder-done" class="btn btn-back">&#8592; DONE</button>
-      <h2>STEP BUILDER</h2>
+      <h2 id="builder-title">STEP BUILDER</h2>
     </header>
     <div id="builder-sync" class="screen-sub"></div>
     <div id="builder-body" class="builder-body"></div>
@@ -137,6 +138,19 @@
     </header>
     <p class="review-hint">Familiarize yourself with each step before work. Viewing is available at any time and never affects a session.</p>
     <div id="review-list" class="review-list"></div>
+  </section>
+
+  <!-- ============ EQUIPMENT MANUALS ============ -->
+  <section id="screen-manuals" class="screen">
+    <header class="bar">
+      <button id="btn-manuals-back" class="btn btn-back">&#8592; BACK</button>
+      <h2>VIEW MANUALS</h2>
+    </header>
+    <p class="review-hint">Quick reference — the user manuals linked to the equipment in this guide.</p>
+    <div id="manuals-list" class="review-list"></div>
+    <div class="stack-actions">
+      <button id="btn-manuals-add-eq" class="btn btn-secondary">+ ADD EQUIPMENT</button>
+    </div>
   </section>
 
   <!-- ============ GATES ============ -->
