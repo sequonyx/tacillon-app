@@ -382,6 +382,11 @@ export async function insertLedgerEvent({ entry, chain_id }) {
     seq: entry.seq,
     event_type: entry.event_type,
     payload: entry,
+    /* Verbatim serialization beside the jsonb copy: jsonb normalizes key
+       order, which breaks byte-exact re-hashing of multi-key detail objects.
+       JSON.parse of this text preserves the device's order, so the archive
+       can re-verify every entry's hash independently (Marker 2 finding). */
+    payload_text: JSON.stringify(entry),
     entry_hash: entry.hash,
     prev_hash: entry.prev_hash,
     device_time: entry.timestamp_iso,
