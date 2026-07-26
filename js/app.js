@@ -11,7 +11,7 @@ import { runBuilder, runEquipmentEditor } from './builder.js';
 import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
 
-const APP_VERSION = '0.11.0';
+const APP_VERSION = '0.11.1';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
@@ -405,8 +405,24 @@ async function pickProfile(p) {
 
 /* ---------------- KC library ---------------- */
 
+/* Operator-facing view of the sync queue — audit-trail entries included.
+   Driven by the same onSyncChange feed as the builder's per-item badges. */
+function renderLibrarySync(ops) {
+  const el = document.getElementById('library-sync');
+  if (!el) return;
+  const n = ops.length;
+  el.hidden = false;
+  el.classList.toggle('pending', n > 0);
+  el.classList.toggle('ok', n === 0);
+  el.textContent = n === 0
+    ? '✓ All records synced.'
+    : `⏳ ${n} record${n === 1 ? '' : 's'} waiting to sync — resumes automatically when online.`;
+}
+sync.onSyncChange(renderLibrarySync);
+
 async function enterLibrary() {
   sync.kick(); // push any field captures that are still waiting
+  renderLibrarySync(await sync.pendingOps());
   const res = await backend.listKCs();
   libraryRows = res.data || [];
   /* Local edits that haven't synced yet are newer than the server's copy —

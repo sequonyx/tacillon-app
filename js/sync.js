@@ -125,3 +125,8 @@ export async function kick() {
 }
 
 window.addEventListener('online', kick);
+
+/* Android suspends a backgrounded PWA's JavaScript, so the 'online' event can
+   be missed entirely if connectivity returns while the app is not foreground.
+   Returning to the foreground drains the queue without waiting for a relaunch. */
+document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
