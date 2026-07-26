@@ -11,7 +11,7 @@ import { runBuilder, runEquipmentEditor } from './builder.js';
 import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
 
-const APP_VERSION = '0.10.0';
+const APP_VERSION = '0.11.0';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */

@@ -360,3 +360,35 @@ export async function mediaUrl(ref) {
   if (error) throw error;
   return data.signedUrl;
 }
+
+/* ---------------- audit ledger archive ---------------- */
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/* One device ledger entry -> one ledger_events row. The hashed entry travels
+   verbatim in payload; chain_id/seq/hashes ride beside it as metadata. The
+   session-context fields (profile, KC row id, app version) exist only on a
+   session's first entry — extracted where present, null otherwise: the archive
+   is a transcript and invents nothing. enterprise_id is stamped by trigger.
+   A kc_db_id that is not UUID-shaped is nulled here, because it would be
+   rejected by type parsing before the server-side nulling trigger could run. */
+export async function insertLedgerEvent({ entry, chain_id }) {
+  const sc = (entry.detail && entry.detail.session_context) || {};
+  const { error } = await client.from('ledger_events').insert({
+    profile_name: sc.profile || null,
+    kc_id: UUID_SHAPE.test(sc.kc_db_id || '') ? sc.kc_db_id : null,
+    session_id: entry.session_id,
+    chain_id,
+    seq: entry.seq,
+    event_type: entry.event_type,
+    payload: entry,
+    entry_hash: entry.hash,
+    prev_hash: entry.prev_hash,
+    device_time: entry.timestamp_iso,
+    app_version: sc.app_version || null
+  });
+  /* A unique violation on entry_hash means this entry is already archived —
+     a retry after an uncertain first attempt. That is success, not failure;
+     anything else stays queued and retries (never surfaced mid-session). */
+  if (error && error.code !== '23505') throw error;
+}

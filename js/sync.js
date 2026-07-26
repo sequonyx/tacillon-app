@@ -54,7 +54,8 @@ export async function pendingOps() {
 /* kind: 'equipment_upsert' { payload: record }
          'equipment_delete' { payload: { id } }
          'vault_upload'     { payload: { path, content_type }, blob }
-         'kc_doc_update'    { payload: { kc_db_id, doc } }               */
+         'kc_doc_update'    { payload: { kc_db_id, doc } }
+         'ledger_event'     { payload: { entry, chain_id } }             */
 export async function enqueue(kind, payload, blob = null) {
   await idb('queue', 'readwrite', (s) => s.put({
     op_id: crypto.randomUUID(),
@@ -101,6 +102,10 @@ export async function kick() {
           const newer = ops.some((o) => o.kind === 'kc_doc_update' &&
             o.payload.kc_db_id === op.payload.kc_db_id && o.created_at > op.created_at);
           if (!newer) await backend.saveKCDoc(op.payload.kc_db_id, op.payload.doc);
+        } else if (op.kind === 'ledger_event') {
+          /* Audit archive. A resend of an already-stored entry resolves as
+             success inside insertLedgerEvent, so retries settle cleanly. */
+          await backend.insertLedgerEvent(op.payload);
         }
         await idb('queue', 'readwrite', (s) => s.delete(op.op_id));
         await notify();

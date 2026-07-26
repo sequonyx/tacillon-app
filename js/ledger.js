@@ -4,7 +4,16 @@
    hash = SHA-256 of the entry's canonical JSON (fixed key order) including prev_hash.
    First entry's prev_hash = "GENESIS". */
 
-const STORE_KEY = 'lt_ledger_v1';
+/* The production ledger's storage slot. Exported so the self-test harness can
+   read it back and refuse to run if its own isolation did not take effect. */
+export const PRODUCTION_STORE_KEY = 'lt_ledger_v1';
+
+/* The device's chain identifier — sidecar metadata for the server archive,
+   never part of the hashed entry (Addendum 01 §4.2(b)). Generated once and
+   persisted; rotated when clear() starts a fresh chain, because seq restarts
+   at 1 there and the server's UNIQUE (chain_id, seq) would otherwise collide
+   with the retired chain's positions. */
+const CHAIN_ID_KEY = 'lt_chain_id_v1';
 
 /* Events that end a session's lifecycle. session_abandoned and
    session_restart_forced are no longer written (v0.2+) but remain terminal so
@@ -38,14 +47,30 @@ async function sha256Hex(text) {
 }
 
 export class Ledger {
-  constructor() {
+  /* storeKey — which local storage slot this ledger occupies. Defaults to the
+     production slot, so existing behaviour with no argument is unchanged.
+
+     A ledger opened under any OTHER key is ISOLATED, and isolation means two
+     things governed by the one condition, so they cannot drift apart:
+       1. it reads and writes its own slot and can neither see nor overwrite
+          production entries;
+       2. it never enqueues to the sync queue, so nothing it records can reach
+          the server. (Part B adds that enqueue — the guard point is marked in
+          append() and clear(). Until Part B lands there is nothing to suppress,
+          but the flag is the single condition it must be written behind.)
+
+     This exists so the self-test harness can exercise the real chain logic on
+     the same origin as the live app without touching the real audit record. */
+  constructor(storeKey = PRODUCTION_STORE_KEY) {
+    this.storeKey = storeKey;
+    this.isolated = storeKey !== PRODUCTION_STORE_KEY;
     this.entries = this._load();
     this._queue = Promise.resolve(); // serialize appends so the chain stays ordered
   }
 
   _load() {
     try {
-      const raw = localStorage.getItem(STORE_KEY);
+      const raw = localStorage.getItem(this.storeKey);
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
@@ -53,7 +78,32 @@ export class Ledger {
   }
 
   _save() {
-    localStorage.setItem(STORE_KEY, JSON.stringify(this.entries));
+    localStorage.setItem(this.storeKey, JSON.stringify(this.entries));
+  }
+
+  _chainId(rotate) {
+    let id = rotate ? null : localStorage.getItem(CHAIN_ID_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(CHAIN_ID_KEY, id);
+    }
+    return id;
+  }
+
+  /* PART B — queue the entry for the server archive. Called after the local
+     write, guarded by isolation, and never awaited: the caller — a live
+     session — must never wait on the network. sync.js is loaded dynamically
+     so an isolated ledger (the self-test harness) never touches the queue or
+     the module graph at all. Nothing in here may throw: a failed enqueue
+     leaves the entry local-only, exactly like any unsynced capture. */
+  _enqueue(entry, newChain = false) {
+    try {
+      if (this.isolated) return;
+      const chain_id = this._chainId(newChain);
+      import('./sync.js')
+        .then((sync) => sync.enqueue('ledger_event', { entry, chain_id }))
+        .catch(() => { /* stays local; never surfaces mid-session */ });
+    } catch { /* archive enqueue must never break the local append */ }
   }
 
   /* Append an event. Returns a promise resolving to the stored entry. */
@@ -73,6 +123,7 @@ export class Ledger {
       entry.hash = await sha256Hex(canonical(entry));
       this.entries.push(entry);
       this._save();
+      this._enqueue(entry); // after the local write; the local write stays unconditional
       return entry;
     });
     return this._queue;
@@ -131,6 +182,10 @@ export class Ledger {
       entry.hash = await sha256Hex(canonical(entry));
       this.entries.push(entry);
       this._save();
+      /* Same guard as append(). A record that a wipe occurred is exactly what
+         the durable archive exists to hold. newChain: this entry restarts the
+         chain at seq 1, so it must open a new chain_id on the server. */
+      this._enqueue(entry, true);
       return entry;
     });
     return this._queue;

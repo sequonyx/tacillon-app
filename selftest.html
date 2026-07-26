@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tacillon Self-Test</title>
+
+<!-- Stubs for the two modules that reach hardware. gates.js imports scanQR
+     directly, so a wrong-tag scan cannot be simulated without remapping it;
+     speech.js is remapped because speechSynthesis may never fire `onend` in a
+     background tab, which would hang the suite on the first spoken step.
+     Native import map: no build step, and no app module is modified.
+     Must appear before any module script. -->
+<script type="importmap">
+{
+  "imports": {
+    "./js/scan.js": "./selftest/scan-stub.js",
+    "./js/speech.js": "./selftest/speech-stub.js"
+  }
+}
+</script>
+
+<style>
+  body { background:#101214; color:#e6e6e6; margin:0; padding:22px;
+         font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  pre  { white-space:pre-wrap; word-break:break-word; margin:0; }
+  .pass { color:#54cf8a; }
+  .fail { color:#ff6b6b; font-weight:700; }
+  .rule { color:#3a3f44; }
+  .note { color:#8b9299; }
+  .halt { color:#ffb454; font-weight:700; }
+  /* The real gate and session screens are driven in here. Kept off-screen
+     rather than display:none so layout still happens and the modules under
+     test behave exactly as they do in the app. */
+  #harness { position:absolute; left:-10000px; top:0; width:420px; }
+</style>
+</head>
+<body>
+<pre id="out">running…</pre>
+<div id="harness" aria-hidden="true"></div>
+
+<!-- backend.js creates the Supabase client at module load, and session.js
+     imports it transitively for mediaUrl(). Without this the T4 import throws. -->
+<script src="js/vendor/supabase.js"></script>
+
+<script type="module">
+import { Ledger, PRODUCTION_STORE_KEY } from './js/ledger.js';
+import { appendSessionAborted } from './js/closure.js';
+import { runGates } from './js/gates.js';
+import { runSession } from './js/session.js';
+import { __setNextScan } from './selftest/scan-stub.js';
+
+/* ------------------------------------------------------------------ *
+ * Isolation. Every ledger this page creates lives in its own storage  *
+ * slot and, being non-production, never enqueues to the sync queue.   *
+ * ------------------------------------------------------------------ */
+const SELFTEST_STORE_KEY = 'lt_ledger_selftest';
+const SID = 'TAC-SELFTEST-0000';
+
+const out = document.getElementById('out');
+const harness = document.getElementById('harness');
+const RULE = '─'.repeat(62);
+const results = [];
+const notes = [];
+
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+function stamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/* Let queued promises and event handlers settle. */
+const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+
+/* ---------------- environment neutralisation ----------------
+   session.js asks for fullscreen and a screen wake lock the moment a session
+   begins. Neither is meaningful to an assertion, and in a background or
+   unfocused tab both can leave the page wedged rather than simply failing —
+   which freezes the whole suite instead of failing one line. Both are replaced
+   here, on this page only, with the failure they are already written to
+   tolerate (session.js catches both). No app module is modified. */
+function neutraliseEnvironment() {
+  const reject = () => Promise.reject(new Error('disabled in the self-test harness'));
+  try { Element.prototype.requestFullscreen = reject; } catch { /* frozen prototype */ }
+  try { document.exitFullscreen = () => Promise.resolve(); } catch { /* non-writable */ }
+  try {
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: { request: reject }
+    });
+  } catch { /* non-configurable */ }
+}
+
+/* A hung assertion must fail loudly, never wedge the page. */
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(
+      () => resolve({ ok: false, expected: 'the assertion to finish', actual: `timed out after ${ms} ms at: ${label()}` }),
+      ms
+    ))
+  ]);
+}
+
+/* Every assertion returns { ok, expected, actual }. A failure must say what was
+   expected and what happened — a bare FAIL wastes the time this exists to save. */
+async function run(id, name, fn) {
+  let r;
+  window.__stage = 'starting';
+  try {
+    r = await withTimeout(fn(), 8000, () => window.__stage);
+  } catch (e) {
+    r = { ok: false, expected: 'the assertion to run', actual: 'threw: ' + ((e && e.message) || e) };
+  }
+  results.push({ id, name, ...r });
+  render();
+}
+
+function render(haltReason = null) {
+  const lines = [`TACILLON SELF-TEST — ${stamp()}`, `<span class="rule">${RULE}</span>`];
+
+  if (haltReason) {
+    lines.push('<span class="halt">HALTED — no assertions were run</span>');
+    lines.push(`<span class="halt">${esc(haltReason)}</span>`);
+    lines.push(`<span class="rule">${RULE}</span>`);
+    out.innerHTML = lines.join('\n');
+    return;
+  }
+
+  for (const r of results) {
+    lines.push(`${r.ok ? '<span class="pass">PASS</span>' : '<span class="fail">FAIL</span>'}  ${r.id}  ${esc(r.name)}`);
+    if (!r.ok) {
+      lines.push(`      <span class="fail">expected:</span> ${esc(r.expected)}`);
+      lines.push(`      <span class="fail">actual:  </span> ${esc(r.actual)}`);
+    }
+  }
+  lines.push(`<span class="rule">${RULE}</span>`);
+  const passed = results.filter((r) => r.ok).length;
+  lines.push(`${passed} passed, ${results.length - passed} failed`);
+  for (const n of notes) lines.push(`<span class="note">${esc(n)}</span>`);
+  out.innerHTML = lines.join('\n');
+}
+
+/* ---------------- fail closed ----------------
+   If the store key did not take effect — most likely a stale service-worker
+   copy of ledger.js without the constructor argument — run NOTHING. A
+   misconfiguration must produce zero tests, never polluted ones. */
+function isolationFailure() {
+  let probe;
+  try {
+    probe = new Ledger(SELFTEST_STORE_KEY);
+  } catch (e) {
+    return 'could not construct an isolated Ledger: ' + ((e && e.message) || e);
+  }
+  if (probe.storeKey !== SELFTEST_STORE_KEY || probe.isolated !== true) {
+    return `ledger isolation did not take effect (storeKey=${probe.storeKey}, isolated=${probe.isolated}). ` +
+      'Most likely a stale service-worker copy of js/ledger.js — bump CACHE_NAME in sw.js and reload, ' +
+      'or clear site data for this origin.';
+  }
+  return null;
+}
+
+/* ================= doubles ================= */
+
+/* A ledger under the self-test key, wiped before each use so assertions do not
+   inherit each other's entries. */
+function freshLedger() {
+  localStorage.removeItem(SELFTEST_STORE_KEY);
+  return new Ledger(SELFTEST_STORE_KEY);
+}
+
+/* gates.js and session.js only ever call ledger.append(). The DOM assertions
+   do not inspect the ledger, so a recorder keeps them off storage entirely. */
+function recordingLedger() {
+  const entries = [];
+  return {
+    entries,
+    append(event_type, o = {}) {
+      const e = { event_type, ...o };
+      entries.push(e);
+      return Promise.resolve(e);
+    }
+  };
+}
+
+/* The `ui` object the modules are handed. holdButton is private to app.js and
+   app.js boots the whole product on import, so the harness supplies its own.
+   That is correct for these assertions: what is under test is whether
+   gates.js / session.js CALL setDisabled — and el.disabled, which is queried
+   here, is exactly the state the real button sets. A regression inside the
+   real holdButton is out of scope and recorded in Build_Considerations.md. */
+function makeUi() {
+  const created = [];
+  return {
+    created,
+    find(label) { return created.find((h) => h.label === label); },
+    show() { /* screen switching is irrelevant here */ },
+    holdButton(label, hint, variant = false) {
+      const el = document.createElement('button');
+      el.textContent = label;
+      const h = {
+        el, label, hint, variant,
+        onComplete(cb) { h._cb = cb; },
+        setDisabled(v) { el.disabled = v; }
+      };
+      created.push(h);
+      return h;
+    },
+    modal() { return Promise.resolve(0); },
+    modalInput() { return Promise.resolve(null); },
+    openReview() {}
+  };
+}
+
+/* Fresh screen scaffolding per test, so element ids stay unique and an
+   abandoned earlier flow cannot be queried by mistake. */
+function mountGateScreen() {
+  harness.innerHTML = `
+    <h2 id="gate-title"></h2>
+    <div id="gate-progress"></div>
+    <div id="gate-body"></div>`;
+}
+
+function mountSessionScreen() {
+  harness.innerHTML = `
+    <div id="session-progress"></div>
+    <button id="btn-abort">ABORT</button>
+    <button id="btn-pause">PAUSE</button>
+    <div id="session-body"></div>`;
+}
+
+/* ================= fixtures ================= */
+
+const KC_LABELS = {
+  kc_id: 'SELFTEST-LABELS', kc_version: '1', organization_name: 'Selftest Org',
+  equipment_manifest: [
+    { label: 'Selftest item A', identity_method: 'none', tag_value: null },
+    { label: 'Selftest item B', identity_method: 'none', tag_value: null }
+  ],
+  baseline_checklist: [], steps: []
+};
+
+const KC_TAGGED = {
+  kc_id: 'SELFTEST-TAGGED', kc_version: '1', organization_name: 'Selftest Org',
+  equipment_manifest: [
+    { label: 'Selftest tagged pump', identity_method: 'qr_nfc', tag_value: 'TAG-CORRECT' }
+  ],
+  baseline_checklist: [], steps: []
+};
+
+const KC_SAFETY = {
+  kc_id: 'SELFTEST-SAFETY', kc_version: '1', organization_name: 'Selftest Org',
+  voice_window_seconds: 5, baseline_checklist: [],
+  steps: [{
+    step_id: 'S01',
+    title: 'Confirm the machine is isolated',
+    severity: 'critical_safety',
+    safety_assertion: 'I have verified the machine is isolated and cannot start.',
+    equipment_label: 'Selftest rig',
+    instruction: 'Selftest step — never executed by a person.',
+    phraseology: 'Confirm the machine is isolated.',
+    required_callout: 'isolation verified',
+    callout_keywords: ['isolation', 'verified'],
+    critical_prerequisites: []
+  }]
+};
+
+function gateCtx(kc) {
+  return {
+    kc, ledger: recordingLedger(), ui: makeUi(), sessionId: SID,
+    appVersion: 'selftest', kcRef: null, profileName: 'Selftest', sessionLogged: false
+  };
+}
+
+/* ================= T1 — an incomplete gate set blocks the proceed control ===== */
+async function t1() {
+  mountGateScreen();
+  const ctx = gateCtx(KC_LABELS);
+  runGates(ctx); // deliberately not awaited: it resolves only on an operator action
+  await tick();
+
+  const hold = ctx.ui.find('ALL EQUIPMENT VERIFIED');
+  if (!hold) return { ok: false, expected: 'the proceed control to exist', actual: 'no ALL EQUIPMENT VERIFIED control was created' };
+
+  const boxes = [...document.querySelectorAll('#label-list input[type=checkbox]')];
+  if (boxes.length !== 2) return { ok: false, expected: '2 equipment checkboxes', actual: `${boxes.length}` };
+
+  const atStart = hold.el.disabled;
+
+  boxes[0].checked = true;
+  boxes[0].dispatchEvent(new Event('change'));
+  await tick();
+  const withOneOfTwo = hold.el.disabled;
+
+  /* Positive control: the same control must unblock when the set IS complete,
+     otherwise a permanently-dead button would pass this assertion. */
+  boxes[1].checked = true;
+  boxes[1].dispatchEvent(new Event('change'));
+  await tick();
+  const withBoth = hold.el.disabled;
+
+  return {
+    ok: atStart === true && withOneOfTwo === true && withBoth === false,
+    expected: 'blocked with 0 of 2, blocked with 1 of 2, released with 2 of 2',
+    actual: `0 of 2: ${atStart ? 'blocked' : 'RELEASED'}; ` +
+            `1 of 2: ${withOneOfTwo ? 'blocked' : 'RELEASED'}; ` +
+            `2 of 2: ${withBoth ? 'STILL BLOCKED' : 'released'}`
+  };
+}
+
+/* ================= T2 — a mismatched tag blocks the proceed control ========== */
+async function t2() {
+  mountGateScreen();
+  const ctx = gateCtx(KC_TAGGED);
+  runGates(ctx);
+  await tick();
+
+  const hold = ctx.ui.find('ALL EQUIPMENT VERIFIED');
+  const scanBtn = document.querySelector('#label-list .scan-btn');
+  if (!hold || !scanBtn) {
+    return { ok: false, expected: 'a scan control and a proceed control', actual: `hold: ${!!hold}, scan button: ${!!scanBtn}` };
+  }
+
+  /* The wrong machine's tag. */
+  __setNextScan('TAG-WRONG-MACHINE');
+  scanBtn.click();
+  await tick();
+  const afterMismatch = hold.el.disabled;
+
+  /* Positive control: the right tag must release it. */
+  __setNextScan('TAG-CORRECT');
+  scanBtn.click();
+  await tick();
+  const afterMatch = hold.el.disabled;
+
+  return {
+    ok: afterMismatch === true && afterMatch === false,
+    expected: 'blocked after a mismatched tag, released after the matching tag',
+    actual: `mismatched tag: ${afterMismatch ? 'blocked' : 'RELEASED — the wrong machine would proceed'}; ` +
+            `matching tag: ${afterMatch ? 'STILL BLOCKED' : 'released'}`
+  };
+}
+
+/* ====== T4 — a critical_safety step blocks confirmation until its assertion is affirmed ====== */
+async function t4() {
+  mountSessionScreen();
+  const ctx = {
+    kc: KC_SAFETY, ledger: recordingLedger(), ui: makeUi(), sessionId: SID,
+    appVersion: 'selftest', kcRef: null, profileName: 'Selftest'
+  };
+
+  /* Entered on the resume path deliberately. runSession writes
+     localStorage['lt_active_session'] at its fresh-start entry (session.js:60);
+     supplying a resumeState skips that write, and the T4 path never reaches the
+     other snapshot calls. The step logic under test is shared by both paths. */
+  const resumeState = {
+    session_id: SID, kc_ref: null, kc_doc: KC_SAFETY,
+    current: 'S01', completed: [],
+    confirmations: { voice: 0, tap: 0 }, interruptions: 0, started_at: Date.now()
+  };
+
+  window.__stage = 'starting the session';
+  runSession(ctx, resumeState);
+  await tick();
+
+  const begin = document.getElementById('btn-begin');
+  if (!begin) return { ok: false, expected: 'the session-ready screen', actual: 'no BEGIN control was rendered' };
+  window.__stage = 'beginning the session';
+  begin.click();
+  await tick(60);
+
+  window.__stage = 'waiting for the step to be presented';
+  const hold = ctx.ui.find('ISOLATION VERIFIED');
+  const assertBox = document.querySelector('#confirm-area .assert-item input[type=checkbox]');
+  if (!hold || !assertBox) {
+    return { ok: false, expected: 'a confirm control and a safety-assertion checkbox',
+             actual: `confirm control: ${!!hold}, assertion checkbox: ${!!assertBox}` };
+  }
+
+  window.__stage = 'reading the unaffirmed state';
+  const unaffirmed = hold.el.disabled;
+
+  /* Positive control: affirming the named assertion must release it. */
+  assertBox.checked = true;
+  assertBox.dispatchEvent(new Event('change'));
+  await tick();
+  const affirmed = hold.el.disabled;
+
+  /* Stand the session down: aborting clears the step's 200 ms poll without
+     completing the step, so nothing is written anywhere. */
+  window.__stage = 'standing the session down';
+  document.getElementById('btn-abort').click();
+  await tick(250);
+
+  return {
+    ok: unaffirmed === true && affirmed === false,
+    expected: 'confirmation blocked while the safety assertion is unaffirmed, released once affirmed',
+    actual: `unaffirmed: ${unaffirmed ? 'blocked' : 'RELEASED — the step could be confirmed without the assertion'}; ` +
+            `affirmed: ${affirmed ? 'STILL BLOCKED' : 'released'}`
+  };
+}
+
+/* ================= T6 — an abort is terminal ================= */
+async function seedSession(l) {
+  await l.append('gate_label_confirm', { session_id: SID, method: 'tap', detail: { label: 'Selftest item' } });
+  await l.append('step_presented', { session_id: SID, step_id: 'S01' });
+  await l.append('step_confirmed', { session_id: SID, step_id: 'S01', method: 'tap' });
+  return l;
+}
+
+async function t6() {
+  const l = await seedSession(freshLedger());
+  const before = l.latestSessionStatus();
+
+  await appendSessionAborted(l, {
+    session_id: SID, step_id: 'S01',
+    reason_code: 'co_alarm', reason_label: 'CO ALARM',
+    extra: { steps_confirmed: 1 }
+  });
+
+  const after = l.latestSessionStatus();
+  const last = l.entries[l.entries.length - 1];
+  const chain = await l.verify();
+
+  return {
+    ok: before.open === true && after.open === false &&
+        last.event_type === 'session_aborted' && last.detail.reason_code === 'co_alarm' &&
+        chain.ok === true,
+    expected: 'session open beforehand, session_aborted written, session no longer open, chain still intact',
+    actual: `open before: ${before.open}; last event: ${last.event_type}; ` +
+            `open after: ${after.open}; chain ${chain.ok ? 'intact' : 'BROKEN at seq ' + chain.brokenAt}`
+  };
+}
+
+/* ================= T7 — the chain verifies ================= */
+async function t7() {
+  const l = await seedSession(freshLedger());
+  await l.append('session_complete', { session_id: SID, detail: { steps_confirmed: 1 } });
+
+  const v = await l.verify();
+  const linked = l.entries[0].prev_hash === 'GENESIS' &&
+    l.entries.every((e, i) => i === 0 || e.prev_hash === l.entries[i - 1].hash);
+
+  return {
+    ok: v.ok === true && v.count === 4 && linked,
+    expected: 'chain intact over 4 entries, each linked to its predecessor',
+    actual: v.ok
+      ? `verify() intact over ${v.count} entries, links ${linked ? 'correct' : 'WRONG'}`
+      : `verify() broken at seq ${v.brokenAt} — ${v.reason}`
+  };
+}
+
+/* ================= T8 — tampering is detected ================= */
+async function t8() {
+  const l = await seedSession(freshLedger());
+  await l.append('session_complete', { session_id: SID, detail: { steps_confirmed: 1 } });
+
+  const clean = await l.verify();
+  if (!clean.ok) {
+    return { ok: false, expected: 'a clean chain to tamper with', actual: `already broken at seq ${clean.brokenAt}` };
+  }
+
+  /* The tamper that matters: a record of work rewritten to claim it was
+     confirmed in a way it never was. */
+  l.entries[2].method = 'voice';
+  l.entries[2].detail = { transcript: 'never happened' };
+
+  const v = await l.verify();
+  return {
+    ok: v.ok === false && v.brokenAt === 3,
+    expected: 'verification fails, reporting the break at seq 3',
+    actual: v.ok
+      ? 'verification still reported the chain as intact — tampering was NOT detected'
+      : `verification failed at seq ${v.brokenAt} — ${v.reason}`
+  };
+}
+
+/* ================= main ================= */
+(async function main() {
+  const halt = isolationFailure();
+  if (halt) { render(halt); return; }
+
+  neutraliseEnvironment();
+
+  /* Inertness witnesses, read before and after. Supports Marker 5. */
+  const ledgerBefore = localStorage.getItem(PRODUCTION_STORE_KEY);
+  const snapshotBefore = localStorage.getItem('lt_active_session');
+
+  await run('T1', 'an incomplete gate set leaves the proceed control blocked', t1);
+  await run('T2', 'an equipment tag that does not match the guide leaves the proceed control blocked', t2);
+  await run('T4', 'a critical_safety step cannot be confirmed until its named assertion is affirmed', t4);
+  await run('T6', 'an abort writes its terminal entry and the session is no longer open', t6);
+  await run('T7', 'entries appended in sequence produce a chain that verifies as intact', t7);
+  await run('T8', 'altering an entry causes verification to fail', t8);
+
+  localStorage.removeItem(SELFTEST_STORE_KEY);
+  harness.innerHTML = '';
+
+  const untouched = [];
+  if (localStorage.getItem(PRODUCTION_STORE_KEY) !== ledgerBefore) untouched.push(PRODUCTION_STORE_KEY);
+  if (localStorage.getItem('lt_active_session') !== snapshotBefore) untouched.push('lt_active_session');
+  notes.push(untouched.length === 0
+    ? 'production ledger and active-session snapshot untouched'
+    : 'WARNING — this run modified: ' + untouched.join(', '));
+  render();
+})();
+</script>
+</body>
+</html>
