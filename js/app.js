@@ -11,7 +11,7 @@ import { runBuilder, runEquipmentEditor } from './builder.js';
 import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
 
-const APP_VERSION = '0.11.2';
+const APP_VERSION = '0.11.3';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
@@ -551,7 +551,6 @@ async function createNewKC(kcType) {
     organization_name: ctx.enterprise ? ctx.enterprise.name : '',
     equipment_labels: [],
     baseline_checklist: [],
-    interruption_threshold_minutes: 30,
     voice_window_seconds: 5,
     steps: []
   };

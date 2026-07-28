@@ -142,7 +142,7 @@ function home() {
   const steps = state.doc.steps || [];
   els.body.innerHTML = `
     <div class="gate-heading">${escapeHtml(state.doc.title)}</div>
-    <div class="screen-sub">Steps are authored in order. Editing existing steps arrives in a later build.</div>
+    <div class="screen-sub">Steps are authored in order. Tap any step to edit it.</div>
     <div class="builder-list" id="b-steps"></div>
     <button class="btn btn-primary btn-big" id="b-add-step">+ ADD STEP ${steps.length + 1}</button>
     <div class="gate-heading" style="margin-top:10px;">Equipment library</div>
@@ -560,11 +560,11 @@ function equipmentForm(onDone, existing = null) {
       <label>How is this item identified on-site?</label>
       <label class="radio-item"><input type="radio" name="e-method" value="none" ${d.method === 'none' ? 'checked' : ''}><span>No tag — TECH confirms it by eye</span></label>
       <label class="radio-item"><input type="radio" name="e-method" value="plain_language_tag" ${d.method === 'plain_language_tag' ? 'checked' : ''}><span>Plain-language tag (a written label)</span></label>
-      <label class="radio-item"><input type="radio" name="e-method" value="qr_nfc" ${d.method === 'qr_nfc' ? 'checked' : ''}><span>QR / NFC tag</span></label>
+      <label class="radio-item"><input type="radio" name="e-method" value="qr_nfc" ${d.method === 'qr_nfc' ? 'checked' : ''}><span>QR code tag</span></label>
     </div>
     <div class="field" id="e-tag-field" ${d.method === 'none' ? 'hidden' : ''}>
       <label for="e-tag">Tag value</label>
-      <input id="e-tag" type="text" value="${escapeHtml(d.tag)}" placeholder="the label text or QR/NFC payload">
+      <input id="e-tag" type="text" value="${escapeHtml(d.tag)}" placeholder="the label text, or the QR code's contents">
       <button class="btn btn-secondary" id="e-scan" ${d.method === 'qr_nfc' && qrSupported() ? '' : 'hidden'}>SCAN QR CODE</button>
     </div>
     <div class="field">
@@ -579,6 +579,21 @@ function equipmentForm(onDone, existing = null) {
   `;
 
   const $ = (id) => els.body.querySelector(id);
+
+  /* A saved item's photo lives in the vault as a plain path; resolve a signed
+     URL so reopening the item shows what was captured. Offline — or before an
+     offline capture has finished uploading — the URL cannot be signed and the
+     thumbnail simply stays hidden, exactly as it behaved before. */
+  if (existing && existing.photo_path) {
+    backend.mediaUrl('vault:' + existing.photo_path)
+      .then((url) => {
+        const t = $('#e-thumb');
+        if (!t) return; // the form was left while the URL was resolving
+        t.src = url;
+        t.hidden = false;
+      })
+      .catch(() => { /* no thumbnail; TAKE/RETAKE PHOTO still works */ });
+  }
 
   $('#e-photo').onclick = () => $('#e-file').click();
   $('#e-file').addEventListener('change', async (e) => {
