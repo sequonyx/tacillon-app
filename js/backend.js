@@ -306,7 +306,7 @@ export async function listRegistrations(kcDbId) {
 export function listEquipment() {
   return fetchOrCache(CACHE.equipment, async () => {
     const { data, error } = await client.from('equipment')
-      .select('id, name, description, photo_path, identity_method, tag_value, manual_url')
+      .select('id, name, description, photo_path, photo_thumb, identity_method, tag_value, manual_url')
       .order('created_at');
     if (error) throw error;
     return data;

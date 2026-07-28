@@ -11,7 +11,7 @@ import { runBuilder, runEquipmentEditor } from './builder.js';
 import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
 
-const APP_VERSION = '0.11.3';
+const APP_VERSION = '0.11.4';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
@@ -167,6 +167,14 @@ const KC_TYPE_NAMES = {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* Inline equipment thumbnail from the doc's equipment_manifest. Only a
+   self-contained image data URI is ever emitted — these go into innerHTML. */
+function thumbImg(thumb, cls) {
+  const safe = typeof thumb === 'string' &&
+    /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(thumb);
+  return safe ? `<img class="${cls}" src="${thumb}" alt="">` : '';
 }
 
 function newSessionId() {
@@ -508,7 +516,7 @@ function renderManualsScreen() {
   for (const m of manifest) {
     const item = document.createElement('div');
     item.className = 'review-item';
-    item.innerHTML = `<h3><span>${escapeHtml(m.label)}</span></h3>`;
+    item.innerHTML = `${thumbImg(m.photo_thumb, 'eq-pick-thumb')}<h3><span>${escapeHtml(m.label)}</span></h3>`;
     if (m.manual_url) {
       /* Opens in a new tab — the guide stays where it is. */
       const a = document.createElement('a');

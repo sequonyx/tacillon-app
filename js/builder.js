@@ -12,6 +12,7 @@ import { scanQR, qrSupported } from './scan.js';
 import { sevOf, SEVERITY_BADGE } from './severity.js';
 
 const MAX_CLIP_SECONDS = 120;   // founder decision 2026-07-11: 2-minute cap per clip
+const THUMB_PX = 200;           // long edge of the inline equipment thumbnail (founder decision 2026-07-27)
 const STOPWORDS = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'of', 'is', 'are', 'be',
   'with', 'for', 'on', 'in', 'at', 'it', 'this', 'that', 'has', 'have']);
 
@@ -21,6 +22,15 @@ let state = null;
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* Inline equipment thumbnail (a data URI produced by downscalePhoto). Only a
+   self-contained image data URI is ever emitted, since these strings are
+   interpolated into innerHTML. Returns '' when there is no usable photo. */
+function thumbImg(thumb, cls) {
+  const safe = typeof thumb === 'string' &&
+    /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(thumb);
+  return safe ? `<img class="${cls}" src="${thumb}" alt="">` : '';
 }
 
 async function initState(ctx, view) {
@@ -172,6 +182,7 @@ function home() {
     const d = document.createElement('div');
     d.className = 'kc-card card-row';
     d.innerHTML = `
+      ${thumbImg(eq.photo_thumb, 'eq-card-thumb')}
       <div class="card-main">
         <h3>${escapeHtml(eq.name)}</h3>
         <div class="kc-meta">${eq.identity_method === 'none' ? 'no identity tag' : escapeHtml(eq.tag_value || '')} · ${eq.manual_url ? 'manual linked · ' : ''}${equipmentStatus(eq)}</div>
@@ -473,15 +484,21 @@ function normalizeDoc() {
      touches, with its identity method and tag value copied INTO the doc — so
      Gate 0 can verify a QR tag offline without resolving the equipment table. */
   const manifest = [];
+  const prevManifest = state.doc.equipment_manifest || []; // replaced at the end of this loop
   for (const s of steps) {
     if (!s.equipment_label || manifest.some((m) => m.label === s.equipment_label)) continue;
     const rec = s.equipment_id ? state.equipment.find((e) => e.id === s.equipment_id) : null;
+    const prev = prevManifest.find((m) => m.equipment_id && m.equipment_id === s.equipment_id);
     manifest.push({
       equipment_id: s.equipment_id || null,
       label: s.equipment_label,
       identity_method: rec ? rec.identity_method : 'none',
       tag_value: rec && rec.identity_method !== 'none' ? (rec.tag_value || null) : null,
-      manual_url: rec ? (rec.manual_url || null) : null
+      manual_url: rec ? (rec.manual_url || null) : null,
+      /* Fall back to the copy the doc already holds when the equipment record
+         carries none — a device whose equipment list has not refreshed, or an
+         older client, must never blank a thumbnail this guide already has. */
+      photo_thumb: (rec && rec.photo_thumb) || (prev && prev.photo_thumb) || null
     });
   }
   state.doc.equipment_manifest = manifest;
@@ -516,7 +533,8 @@ function equipmentPicker(d) {
   for (const eq of state.equipment) {
     const c = document.createElement('div');
     c.className = 'kc-card';
-    c.innerHTML = `<h3>${escapeHtml(eq.name)}</h3>
+    c.innerHTML = `${thumbImg(eq.photo_thumb, 'eq-pick-thumb')}
+      <h3>${escapeHtml(eq.name)}</h3>
       <div class="kc-meta">${escapeHtml(eq.description || '')}</div>`;
     c.addEventListener('click', () => { d.equipment_id = eq.id; persistDraft(d); stepForm(d); });
     list.appendChild(c);
@@ -533,11 +551,12 @@ function equipmentForm(onDone, existing = null) {
   state.view = 'equipment';
   const d = existing
     ? {
-        photoBlob: null, name: existing.name, description: existing.description || '',
+        photoBlob: null, photoThumb: existing.photo_thumb || null,
+        name: existing.name, description: existing.description || '',
         method: existing.identity_method, tag: existing.tag_value || '',
         manualUrl: existing.manual_url || ''
       }
-    : { photoBlob: null, name: '', description: '', method: 'none', tag: '', manualUrl: '' };
+    : { photoBlob: null, photoThumb: null, name: '', description: '', method: 'none', tag: '', manualUrl: '' };
 
   els.body.innerHTML = `
     <div class="gate-heading">${existing ? 'Edit equipment' : 'New equipment'}</div>
@@ -581,28 +600,45 @@ function equipmentForm(onDone, existing = null) {
   const $ = (id) => els.body.querySelector(id);
 
   /* A saved item's photo lives in the vault as a plain path; resolve a signed
-     URL so reopening the item shows what was captured. Offline — or before an
-     offline capture has finished uploading — the URL cannot be signed and the
-     thumbnail simply stays hidden, exactly as it behaved before. */
+     URL so reopening the item shows what was captured. Fetched into a blob
+     rather than assigned straight to the <img>, because a cross-origin image
+     taints the canvas and would break the backfill below. Offline — or before
+     an offline capture has finished uploading — nothing loads and the image
+     simply stays hidden, exactly as it behaved before. */
   if (existing && existing.photo_path) {
     backend.mediaUrl('vault:' + existing.photo_path)
-      .then((url) => {
+      .then((url) => fetch(url))
+      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error('photo fetch failed'))))
+      .then((blob) => new Promise((resolve, reject) => {
+        const objUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => resolve({ img, objUrl });
+        img.onerror = () => { URL.revokeObjectURL(objUrl); reject(new Error('photo decode failed')); };
+        img.src = objUrl;
+      }))
+      .then(({ img, objUrl }) => {
         const t = $('#e-thumb');
-        if (!t) return; // the form was left while the URL was resolving
-        t.src = url;
+        if (!t) { URL.revokeObjectURL(objUrl); return; } // form left while loading
+        t.src = objUrl;
         t.hidden = false;
+        /* Items photographed before thumbnails existed get one derived from the
+           image just loaded, saved with the next SAVE CHANGES. Nothing has to
+           be re-photographed. */
+        if (!d.photoThumb) d.photoThumb = thumbFromLoadedImage(img);
       })
-      .catch(() => { /* no thumbnail; TAKE/RETAKE PHOTO still works */ });
+      .catch(() => { /* no image shown; TAKE/RETAKE PHOTO still works */ });
   }
 
   $('#e-photo').onclick = () => $('#e-file').click();
   $('#e-file').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    d.photoBlob = await downscalePhoto(file);
-    if (d.photoBlob) {
+    const shot = await downscalePhoto(file);
+    if (shot) {
+      d.photoBlob = shot.blob;
+      d.photoThumb = shot.thumb;
       const t = $('#e-thumb');
-      t.src = URL.createObjectURL(d.photoBlob);
+      t.src = URL.createObjectURL(shot.blob);
       t.hidden = false;
       $('#e-photo').textContent = 'RETAKE PHOTO';
     }
@@ -653,7 +689,7 @@ function equipmentForm(onDone, existing = null) {
     }
     const rec = {
       id, name: d.name.trim(), description: d.description.trim() || null,
-      photo_path, identity_method: d.method,
+      photo_path, photo_thumb: d.photoThumb || null, identity_method: d.method,
       tag_value: d.method === 'none' ? null : d.tag.trim(),
       manual_url: manualUrl || null,
       created_by: existing ? existing.created_by : (state.ctx.profileId || null)
@@ -669,7 +705,8 @@ function equipmentForm(onDone, existing = null) {
     if (existing && (existing.name !== rec.name ||
         existing.identity_method !== rec.identity_method ||
         existing.tag_value !== rec.tag_value ||
-        (existing.manual_url || null) !== rec.manual_url)) {
+        (existing.manual_url || null) !== rec.manual_url ||
+        (existing.photo_thumb || null) !== rec.photo_thumb)) {
       let touched = false;
       for (const s of state.doc.steps || []) {
         if (s.equipment_id === id) { s.equipment_label = rec.name.toUpperCase(); touched = true; }
@@ -704,22 +741,47 @@ function equipmentForm(onDone, existing = null) {
   $('#e-cancel').onclick = () => onDone(null);
 }
 
-/* Downscale camera photos to ~1280px JPEG so equipment photos stay small. */
+/* Draw an already-loaded image onto a canvas whose LONG edge is `px`. */
+function fitToCanvas(img, px) {
+  const scale = Math.min(1, px / Math.max(img.width, img.height));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(img.width * scale));
+  c.height = Math.max(1, Math.round(img.height * scale));
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+
+/* A camera photo becomes TWO images:
+     blob  — ~1280px JPEG uploaded to the vault; what photo_path points at.
+     thumb — ~200px JPEG data URI (~10-15 kB) stored on the equipment record and
+             copied into every KC doc's equipment_manifest by normalizeDoc().
+   The thumbnail exists because Gate 0 must work with no signal: a vault image
+   needs a signed URL, and the service worker never caches Supabase (sw.js:52).
+   Same reasoning that puts tag_value in the doc rather than looking it up. */
 function downscalePhoto(file) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
-      const c = document.createElement('canvas');
-      c.width = Math.round(img.width * scale);
-      c.height = Math.round(img.height * scale);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const full = fitToCanvas(img, 1280);
+      const thumb = fitToCanvas(img, THUMB_PX).toDataURL('image/jpeg', 0.7);
       URL.revokeObjectURL(img.src);
-      c.toBlob((b) => resolve(b), 'image/jpeg', 0.82);
+      full.toBlob((b) => resolve(b ? { blob: b, thumb } : null), 'image/jpeg', 0.82);
     };
     img.onerror = () => resolve(null);
     img.src = URL.createObjectURL(file);
   });
+}
+
+/* Backfill path: derive a thumbnail from an image element already on screen,
+   for equipment photographed before thumbnails existed. The image must have
+   been loaded from a blob: URL, not straight from the signed URL — a
+   cross-origin image taints the canvas and toDataURL throws. */
+function thumbFromLoadedImage(img) {
+  try {
+    return fitToCanvas(img, THUMB_PX).toDataURL('image/jpeg', 0.7);
+  } catch {
+    return null; // tainted canvas or zero-sized image; nothing is lost
+  }
 }
 
 /* ---------------- in-app video capture ---------------- */

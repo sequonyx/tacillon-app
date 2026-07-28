@@ -23,6 +23,21 @@ function attestationText(orgName) {
 const FINE_PRINT = 'Full third-party TECH authorization verification will be available in a future release. ' +
   'During this phase, TECH qualification is the responsibility of the deploying organization.';
 
+/* Equipment thumbnail carried in the KC doc (equipment_manifest.photo_thumb).
+   A data URI, so it renders with no connection — the whole reason Gate 0 works
+   in a plant room. It exists because a scan verifies the TAG, not the MACHINE:
+   a tag stuck on the wrong unit still matches, the gate still passes, and the
+   audit trail still records a clean verification. The picture is the only thing
+   that lets a TECH notice. It is a visual aid, not an enforced check.
+   Only a self-contained image data URI is ever emitted — the manifest is
+   enterprise-authored data going into innerHTML. */
+function thumbHtml(item) {
+  const t = item.photo_thumb;
+  const safe = typeof t === 'string' &&
+    /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(t);
+  return safe ? `<img class="eq-check-thumb" src="${t}" alt="">` : '';
+}
+
 export async function runGates(ctx) {
   const { kc, ledger, ui, sessionId } = ctx;
   const title = document.getElementById('gate-title');
@@ -54,7 +69,7 @@ export async function runGates(ctx) {
   const gate0 = manifest.length === 0 ? { ok: true, verified: [] } : await new Promise((resolve) => {
     body.innerHTML = `
       <div class="gate-heading">Equipment identity check</div>
-      <div class="gate-sub">Confirm each item at the equipment. Tagged items are verified by scanning their QR code; the rest by reading the physical label. All items must be verified to proceed.</div>
+      <div class="gate-sub">Confirm each item at the equipment. Check any picture against the machine in front of you — a tag can end up on the wrong unit. Tagged items are verified by scanning their QR code; the rest by reading the physical label. All items must be verified to proceed.</div>
       <div class="check-list" id="label-list"></div>
       <div class="decl-actions" id="label-actions"></div>
     `;
@@ -74,7 +89,7 @@ export async function runGates(ctx) {
       if (!needsScan) {
         const row = document.createElement('label');
         row.className = 'check-item';
-        row.innerHTML = `<input type="checkbox"><span class="check-name">${item.label}</span>`;
+        row.innerHTML = `<input type="checkbox">${thumbHtml(item)}<span class="check-name">${item.label}</span>`;
         row.querySelector('input').addEventListener('change', (e) => {
           verified[i] = e.target.checked ? { verify: 'visual' } : null;
           row.classList.toggle('checked', e.target.checked);
@@ -87,6 +102,7 @@ export async function runGates(ctx) {
       const row = document.createElement('div');
       row.className = 'check-item scan-row';
       row.innerHTML = `
+        ${thumbHtml(item)}
         <div class="scan-main">
           <span class="check-name">${item.label}</span>
           <div class="mismatch-note scan-note"></div>
