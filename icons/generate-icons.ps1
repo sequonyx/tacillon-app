@@ -1,5 +1,5 @@
 # Regenerates the app icon set from the official Tacillon logo.
-# Source: C:\LT\Tacillo_logo_only.png (founder-provided, 2026-07-14).
+# Source: C:\LT\tacillon-site\T logo.png (founder-provided brushed-brass T, 2026-08-30).
 # Output: icon-192.png (favicon + apple-touch), icon-512.png,
 #         icon-maskable-512.png (logo shrunk into Android's 80% safe zone,
 #         padded with the logo's own background color).
@@ -8,7 +8,7 @@
 Add-Type -AssemblyName System.Drawing
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$srcPath = 'C:\LT\Tacillo_logo_only.png'
+$srcPath = 'C:\LT\tacillon-site\T logo.png'
 if (-not (Test-Path $srcPath)) { throw "Logo source not found: $srcPath" }
 
 $src = [System.Drawing.Bitmap]::FromFile($srcPath)

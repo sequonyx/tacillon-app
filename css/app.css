@@ -1,18 +1,34 @@
 /* LT v0.1 — dark, sterile, high-legibility interface */
 
 :root {
-  --bg: #0b0f14;
-  --bg-raise: #121820;
-  --bg-card: #161d27;
+  /* Background navy matches the tacillon.com / sequonyx.com --ink (#0E1620)
+     and --ink-2 (#17222E) for brand continuity across site and app. */
+  --bg: #0e1620;
+  --bg-raise: #131c27;
+  --bg-card: #17222e;
   --line: #263241;
   --text: #e8eef4;
-  --text-dim: #93a3b3;
+  /* Was #93a3b3 — too dim to read outdoors. Founder direction 2026-08-30:
+     secondary text uses the same white as body text; hierarchy is carried
+     by size and weight instead of grey. */
+  --text-dim: #e8eef4;
+  --brass: #d2a461;   /* accent-on-dark brass shared with the web sites */
   --accent: #37b6ff;
   --accent-dim: #1a5e85;
   --ok: #35d07f;
   --warn: #ffb03a;      /* critical amber */
   --danger: #ff5d5d;
   --radius: 14px;
+}
+
+/* Jura 500 — the wordmark face used on tacillon.com / sequonyx.com.
+   Self-hosted (latin subset) so the installed PWA renders it offline. */
+@font-face {
+  font-family: 'Jura';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../fonts/jura-500.woff2') format('woff2');
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -79,15 +95,28 @@ html, body {
 .btn[disabled] { opacity: 0.4; pointer-events: none; }
 
 /* ---------- home ---------- */
-.home-header { text-align: center; padding: 12vh 0 6vh; }
-.app-title { font-size: 2.4rem; font-weight: 800; letter-spacing: 0.18em; }
+/* Top padding was 12vh/6vh of empty space; the logo now occupies it, so the
+   header ends at the same height and the menu below never needs a scroll. */
+.home-header { text-align: center; padding: 3vh 0 3vh; }
+.app-logo { display: block; width: 88px; height: auto; margin: 0 auto 12px; }
+/* Matches the .wordmark on tacillon.com: Jura 500, 0.3em tracking, brass.
+   padding-left balances the trailing letter-space so the centered text
+   doesn't sit optically off-center. */
+.app-title {
+  font-family: 'Jura', 'Segoe UI', sans-serif;
+  font-size: 2.4rem;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  padding-left: 0.3em;
+  color: var(--brass);
+}
 .app-version { color: var(--text-dim); font-size: 0.85rem; margin-top: 2px; }
 .kc-title { margin-top: 18px; color: var(--accent); font-size: 1.05rem; }
 .home-actions { display: flex; flex-direction: column; gap: 14px; max-width: 420px; width: 100%; margin: 0 auto; }
 .home-footer { margin-top: auto; text-align: center; color: var(--text-dim); font-size: 0.8rem; padding-top: 24px; }
 
 /* ---------- review ---------- */
-.review-hint { color: var(--text-dim); font-size: 0.9rem; padding-bottom: 14px; }
+.review-hint { color: var(--text-dim); font-size: 1.05rem; padding-bottom: 14px; }
 .review-list { display: flex; flex-direction: column; gap: 12px; padding-bottom: 24px; }
 .review-item {
   background: var(--bg-card);
@@ -118,7 +147,7 @@ html, body {
   margin-top: 8px; padding: 8px 12px; border-left: 3px solid var(--danger);
   background: rgba(255, 93, 93, 0.08); font-size: 0.88rem; border-radius: 0 8px 8px 0;
 }
-.review-item .review-instruction { color: var(--text-dim); font-size: 0.88rem; margin-top: 6px; }
+.review-item .review-instruction { color: var(--text-dim); font-size: 1.05rem; margin-top: 6px; }
 .review-item video {
   width: 100%; margin-top: 10px; border-radius: 8px; background: #000;
   max-height: 52vh;
@@ -145,8 +174,9 @@ html, body {
 .field input:focus { outline: 2px solid var(--accent); }
 /* The login screen must fit a phone without scrolling: compress the big
    home-style header so the mode-toggle button stays on screen. */
-#screen-auth .home-header { padding: 4vh 0 3vh; }
+#screen-auth .home-header { padding: 2vh 0 2vh; }
 #screen-auth .app-title { font-size: 1.6rem; }
+#screen-auth .app-logo { width: 56px; margin-bottom: 8px; }
 
 .pw-row { display: flex; gap: 8px; }
 .pw-row input { flex: 1; min-width: 0; }
@@ -165,7 +195,7 @@ html, body {
 .auth-msg.bad { color: var(--danger); }
 .auth-msg.ok { color: var(--ok); }
 
-.screen-sub { color: var(--text-dim); font-size: 0.9rem; padding-bottom: 12px; }
+.screen-sub { color: var(--text-dim); font-size: 1.05rem; padding-bottom: 12px; }
 .offline-note {
   background: rgba(255, 193, 7, 0.08); border-left: 3px solid var(--warn);
   padding: 10px 12px; font-size: 0.85rem; border-radius: 0 8px 8px 0; margin-bottom: 12px;
@@ -242,13 +272,13 @@ textarea:focus { outline: 2px solid var(--accent); }
 
 .gate-body { display: flex; flex-direction: column; gap: 14px; padding-bottom: 24px; }
 .gate-heading { font-size: 1.2rem; font-weight: 700; }
-.gate-sub { color: var(--text-dim); font-size: 0.9rem; }
+.gate-sub { color: var(--text-dim); font-size: 1.1rem; }
 
 .label-card {
   background: var(--bg-card); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 18px; text-align: center;
 }
-.label-card .label-prompt { color: var(--text-dim); font-size: 0.9rem; }
+.label-card .label-prompt { color: var(--text-dim); font-size: 1.05rem; }
 .label-card .label-name { font-size: 1.6rem; font-weight: 800; letter-spacing: 0.08em; margin: 10px 0; }
 .label-input {
   width: 100%; padding: 14px; font: inherit; font-size: 1.2rem; text-align: center;
@@ -262,11 +292,11 @@ textarea:focus { outline: 2px solid var(--accent); }
 .decl-card {
   background: var(--bg-card); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 18px;
-  font-size: 1.02rem;
+  font-size: 1.12rem;
 }
 .decl-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
 
-.attest-fineprint { color: var(--text-dim); font-size: 0.78rem; margin-top: 12px; }
+.attest-fineprint { color: var(--text-dim); font-size: 0.95rem; margin-top: 12px; }
 .attest-check {
   display: flex; gap: 12px; align-items: flex-start;
   background: var(--bg-card); border: 1px solid var(--line);
@@ -284,7 +314,7 @@ textarea:focus { outline: 2px solid var(--accent); }
 .check-item input { width: 48px; height: 48px; flex: none; accent-color: var(--accent); }
 .check-item.checked { border-color: var(--ok); }
 .check-item .check-name { font-size: 1.2rem; font-weight: 800; letter-spacing: 0.08em; }
-.check-item .check-decl { font-size: 0.98rem; line-height: 1.5; }
+.check-item .check-decl { font-size: 1.1rem; line-height: 1.5; }
 .na-active { border-color: var(--accent); color: var(--accent); }
 
 /* critical_safety assertion (stage 2): red until actively checked */
@@ -319,7 +349,7 @@ textarea:focus { outline: 2px solid var(--accent); }
 .scan-row .scan-fallback { width: auto; align-self: flex-start; padding: 8px 12px; font-size: 0.75rem; }
 
 /* ---------- session (sterile) ---------- */
-.sterile { background: #05080c; }
+.sterile { background: var(--bg); }
 .session-bar {
   display: flex; justify-content: space-between; align-items: center;
   padding-bottom: 10px;
@@ -349,10 +379,12 @@ textarea:focus { outline: 2px solid var(--accent); }
 .critical-banner.safety { background: var(--danger); color: #fff; }
 .step-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 4px; }
 .step-label-tag { color: var(--accent); font-size: 0.8rem; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 12px; }
-.step-instruction { font-size: 1.12rem; line-height: 1.55; }
+/* Founder direction 2026-08-30: instruction text must be readable outdoors
+   through safety glasses — larger and full-white, not dim grey. */
+.step-instruction { font-size: 1.35rem; line-height: 1.55; }
 .failure-note {
   margin-top: 12px; padding: 10px 12px; border-left: 3px solid var(--danger);
-  background: rgba(255, 93, 93, 0.08); font-size: 0.92rem; border-radius: 0 8px 8px 0;
+  background: rgba(255, 93, 93, 0.08); font-size: 1.1rem; border-radius: 0 8px 8px 0;
 }
 
 .step-video { width: 100%; border-radius: 10px; background: #000; max-height: 44vh; }
@@ -368,6 +400,7 @@ textarea:focus { outline: 2px solid var(--accent); }
 .prereq-item {
   display: flex; gap: 12px; align-items: flex-start;
   padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer;
+  font-size: 1.05rem;
 }
 .prereq-item:last-of-type { border-bottom: none; }
 .prereq-item input { width: 24px; height: 24px; flex: none; margin-top: 1px; accent-color: var(--warn); }
@@ -404,7 +437,7 @@ textarea:focus { outline: 2px solid var(--accent); }
 /* voice status */
 .voice-status {
   display: flex; align-items: center; gap: 10px;
-  color: var(--text-dim); font-size: 0.88rem; min-height: 1.6em;
+  color: var(--text-dim); font-size: 1rem; min-height: 1.6em;
 }
 .voice-status .mic-dot {
   width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex: none;
@@ -426,7 +459,7 @@ textarea:focus { outline: 2px solid var(--accent); }
 /* pause */
 .pause-wrap { display: flex; flex-direction: column; gap: 16px; margin: auto 0; text-align: center; max-width: 420px; width: 100%; align-self: center; }
 .pause-timer { font-size: 3.4rem; font-weight: 800; letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }
-.pause-note { color: var(--text-dim); font-size: 0.9rem; }
+.pause-note { color: var(--text-dim); font-size: 1.05rem; }
 
 /* reconfirm list */
 .reconfirm-item {
@@ -440,7 +473,7 @@ textarea:focus { outline: 2px solid var(--accent); }
 /* blocked */
 .blocked-wrap { margin: auto 0; text-align: center; display: flex; flex-direction: column; gap: 16px; max-width: 420px; width: 100%; align-self: center; }
 .blocked-icon { font-size: 3rem; color: var(--danger); }
-.blocked-note { color: var(--text-dim); font-size: 0.85rem; }
+.blocked-note { color: var(--text-dim); font-size: 1rem; }
 
 /* summary */
 .summary-body { display: flex; flex-direction: column; gap: 12px; padding-bottom: 20px; }
