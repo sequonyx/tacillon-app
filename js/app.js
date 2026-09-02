@@ -10,8 +10,9 @@ import * as sync from './sync.js';
 import { runBuilder, runEquipmentEditor } from './builder.js';
 import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
+import { TERMS_VERSION, TERMS_URL, PRIVACY_URL, decideTermsGate, hashDocument } from './terms.js';
 
-const APP_VERSION = '0.12.0';
+const APP_VERSION = '0.13.0';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
@@ -206,7 +207,7 @@ async function boot() {
     // (skipWaiting + clients.claim). Reload once so the fresh files show on
     // THIS launch instead of the next one — but only from a between-work
     // screen, never mid-session.
-    const SAFE_RELOAD_SCREENS = ['screen-auth', 'screen-profile', 'screen-library', 'screen-home'];
+    const SAFE_RELOAD_SCREENS = ['screen-auth', 'screen-terms', 'screen-profile', 'screen-library', 'screen-home'];
     const hadController = !!navigator.serviceWorker.controller;
     let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -238,7 +239,94 @@ async function boot() {
   if (recoveryMode && session) { show('screen-resetpw'); return; }
   if (recoveryMode) sessionStorage.removeItem('tac_pw_recovery'); // link expired or already used — normal login
   if (!session) { setAuthMode('login'); show('screen-auth'); return; }
-  await enterProfileScreen();
+  await enterApp();
+}
+
+/* ---------------- terms of service gate ----------------
+   Every path that arrives with a session (boot, LOG IN, sign-up that returns
+   a session, Google return, password reset) goes through enterApp(), and
+   enterApp() goes nowhere until the enterprise has agreed to the current
+   TERMS_VERSION. Decline = sign out. */
+
+async function enterApp() {
+  if (await ensureTermsAccepted()) await enterProfileScreen();
+}
+
+async function ensureTermsAccepted() {
+  const session = await backend.getSession();
+  if (!session) { setAuthMode('login'); show('screen-auth'); return false; }
+
+  let row = null;
+  let offline = false;
+  try { row = await backend.getTermsAcceptance(TERMS_VERSION); } catch { offline = true; }
+
+  if (offline) {
+    /* No reception: a device that already recorded its agreement may keep
+       working; one that never has must connect to agree for the first time. */
+    if (backend.termsAcceptedLocally(TERMS_VERSION)) return true;
+    return showTermsGate({ offline: true });
+  }
+
+  const decision = decideTermsGate({ row, metadata: session.user && session.user.user_metadata, version: TERMS_VERSION });
+  if (decision === 'accepted') { backend.rememberTermsAccepted(TERMS_VERSION); return true; }
+  if (decision === 'record_signup') {
+    /* The box was ticked on CREATE ENTERPRISE ACCOUNT; turn it into a row. */
+    try { await recordTermsAcceptance('signup'); return true; } catch { /* ask instead */ }
+  }
+  return showTermsGate({ offline: false });
+}
+
+async function recordTermsAcceptance(via) {
+  const [termsSha256, privacySha256] = await Promise.all([hashDocument(TERMS_URL), hashDocument(PRIVACY_URL)]);
+  await backend.recordTermsAcceptance({ version: TERMS_VERSION, termsSha256, privacySha256, via, appVersion: APP_VERSION });
+  backend.rememberTermsAccepted(TERMS_VERSION);
+}
+
+function termsMsg(text, cls = '') {
+  const el = document.getElementById('terms-msg');
+  el.textContent = text;
+  el.className = 'auth-msg' + (cls ? ' ' + cls : '');
+}
+
+/* Resolves true once the agreement is recorded; false (after signing out and
+   reloading) if declined. Handlers are assigned, not added, so showing the
+   screen twice in one launch cannot double-fire. */
+function showTermsGate({ offline }) {
+  return new Promise((resolve) => {
+    const item = document.getElementById('terms-agree-item');
+    const box = document.getElementById('terms-agree');
+    const agree = document.getElementById('btn-terms-agree');
+    document.getElementById('terms-version').textContent = TERMS_VERSION;
+    box.checked = false;
+    item.classList.remove('checked');
+    agree.disabled = true;
+    termsMsg(offline ? 'You are offline. Connect to the internet to agree for the first time on this device.' : '',
+             offline ? 'bad' : '');
+
+    box.onchange = () => {
+      item.classList.toggle('checked', box.checked);
+      agree.disabled = !box.checked || offline;
+    };
+    agree.onclick = async () => {
+      if (!box.checked) return;
+      agree.disabled = true;
+      termsMsg('Recording your agreement…');
+      try {
+        await recordTermsAcceptance('login');
+        termsMsg('');
+        resolve(true);
+      } catch {
+        termsMsg('Could not record the agreement — check the connection and try again.', 'bad');
+        agree.disabled = false;
+      }
+    };
+    document.getElementById('btn-terms-decline').onclick = async () => {
+      await backend.signOut();
+      location.reload();
+      resolve(false);
+    };
+    show('screen-terms');
+  });
 }
 
 /* ---------------- enterprise login screen ---------------- */
@@ -254,6 +342,7 @@ function authMsg(text, cls = '') {
 function setAuthMode(mode) {
   authMode = mode;
   document.getElementById('auth-entname-field').hidden = mode === 'login';
+  document.getElementById('auth-terms-item').hidden = mode === 'login';
   document.getElementById('auth-heading').textContent =
     mode === 'login' ? 'ENTERPRISE LOGIN' : 'CREATE ENTERPRISE ACCOUNT';
   document.getElementById('btn-auth-submit').textContent =
@@ -273,6 +362,10 @@ async function submitAuth() {
     authMsg('The password must be at least 6 characters.', 'bad');
     return;
   }
+  if (authMode === 'signup' && !document.getElementById('auth-terms').checked) {
+    authMsg('Tick the box to agree to the Terms of Service and Privacy Policy.', 'bad');
+    return;
+  }
 
   const btn = document.getElementById('btn-auth-submit');
   btn.disabled = true;
@@ -280,14 +373,15 @@ async function submitAuth() {
   try {
     if (authMode === 'login') {
       await backend.signIn(email, password);
-      await enterProfileScreen();
+      await enterApp();
     } else {
-      const r = await backend.signUp(email, password, entName);
+      const r = await backend.signUp(email, password, entName,
+        { terms_version: TERMS_VERSION, terms_accepted_at: new Date().toISOString() });
       if (r.needsConfirmation) {
         setAuthMode('login');
         authMsg('Account created. Check your email, tap the confirmation link, then log in here.', 'ok');
       } else {
-        await enterProfileScreen();
+        await enterApp();
       }
     }
   } catch (e) {
@@ -322,7 +416,7 @@ async function submitNewPassword() {
     document.getElementById('resetpw-password').value = '';
     resetPwMsg('');
     await modal('Password updated. You are logged in.', ['OK']);
-    await enterProfileScreen();
+    await enterApp();
   } catch (e) {
     resetPwMsg(/should be different/i.test(e.message || '')
       ? 'That is already the current password — choose a different one.'
@@ -635,6 +729,8 @@ function wireStatic() {
   document.getElementById('btn-auth-submit').addEventListener('click', submitAuth);
   document.getElementById('btn-auth-toggle').addEventListener('click', () =>
     setAuthMode(authMode === 'login' ? 'signup' : 'login'));
+  document.getElementById('auth-terms').addEventListener('change', (e) =>
+    document.getElementById('auth-terms-item').classList.toggle('checked', e.target.checked));
   document.getElementById('btn-pw-toggle').addEventListener('click', () => {
     const pw = document.getElementById('auth-password');
     const showing = pw.type === 'text';
@@ -672,7 +768,7 @@ function wireStatic() {
     /* The recovery link already signed them in — cancelling just skips the
        password change and carries on into the app. */
     sessionStorage.removeItem('tac_pw_recovery');
-    await enterProfileScreen();
+    await enterApp();
   });
   document.getElementById('btn-auth-google').addEventListener('click', async () => {
     authMsg('Opening Google sign-in…');

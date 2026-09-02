@@ -136,7 +136,8 @@ function warrantyGate(row, publicId, ui, appVersion) {
       <div id="gate-msg" class="auth-msg"></div>
       <div id="gate-agree"></div>
       <p class="attest-fineprint">Your details, the date, and the safety protocol you agreed to
-      are recorded with the manufacturer.</p>
+      are recorded with the manufacturer. How this information is handled:
+      <a href="legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</p>
     `;
 
     const emailEl = document.getElementById('gate-email');

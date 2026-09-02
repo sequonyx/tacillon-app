@@ -26,7 +26,8 @@ const CACHE = {
   profiles: 'lt_cache_profiles',
   kcs: 'lt_cache_kcs',
   equipment: 'lt_cache_equipment',
-  lastProfile: 'lt_last_profile'
+  lastProfile: 'lt_last_profile',
+  terms: 'lt_terms_accepted'
 };
 
 function cacheGet(key) {
@@ -71,13 +72,55 @@ export async function signIn(email, password) {
 /* Creates the account; the enterprise row is created automatically by a
    database trigger from the enterprise_name metadata. With email confirmation
    on, no session is returned until the emailed link is tapped. */
-export async function signUp(email, password, enterpriseName) {
+export async function signUp(email, password, enterpriseName, termsMeta = {}) {
+  /* termsMeta = { terms_version, terms_accepted_at } from the sign-up checkbox.
+     It rides in the auth user's metadata because no database row can be
+     written before the account exists; the first login turns it into a
+     terms_acceptances row (see app.js ensureTermsAccepted). */
   const { data, error } = await client.auth.signUp({
     email, password,
-    options: { data: { enterprise_name: enterpriseName } }
+    options: { data: { enterprise_name: enterpriseName, ...termsMeta } }
   });
   if (error) throw error;
   return { session: data.session, needsConfirmation: !data.session };
+}
+
+/* ---------------- terms of service acceptance ---------------- */
+
+/* The acceptance row for this version, or null. Throws when offline so the
+   caller can distinguish "never agreed" from "cannot check right now". */
+export async function getTermsAcceptance(version) {
+  const { data, error } = await client.from('terms_acceptances')
+    .select('terms_version, accepted_at, accepted_via')
+    .eq('terms_version', version)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/* enterprise_id, accepted_by_email and accepted_at are stamped server-side by
+   trigger; the client sends only what it knows. A unique violation means this
+   version is already on record for the enterprise — success, not failure. */
+export async function recordTermsAcceptance({ version, termsSha256, privacySha256, via, appVersion }) {
+  const { error } = await client.from('terms_acceptances').insert({
+    terms_version: version,
+    terms_sha256: termsSha256 || null,
+    privacy_sha256: privacySha256 || null,
+    accepted_via: via,
+    user_agent: (navigator.userAgent || '').slice(0, 300),
+    app_version: appVersion || null
+  });
+  if (error && error.code !== '23505') throw error;
+}
+
+/* Device memory that this version was accepted, so a signed-in phone with no
+   reception is not locked out of work it was already entitled to do. Cleared
+   on sign-out with the rest of the cache. */
+export function termsAcceptedLocally(version) {
+  return localStorage.getItem(CACHE.terms) === version;
+}
+export function rememberTermsAccepted(version) {
+  try { localStorage.setItem(CACHE.terms, version); } catch { /* best-effort */ }
 }
 
 /* Federated login. Redirects to the provider and back; on return, supabase-js

@@ -49,6 +49,7 @@ import { appendSessionAborted } from './js/closure.js';
 import { runGates } from './js/gates.js';
 import { runSession } from './js/session.js';
 import { __setNextScan } from './selftest/scan-stub.js';
+import { decideTermsGate, TERMS_VERSION } from './js/terms.js';
 
 /* ------------------------------------------------------------------ *
  * Isolation. Every ledger this page creates lives in its own storage  *
@@ -477,6 +478,28 @@ async function t8() {
   };
 }
 
+/* ================= T9 — the terms gate closes unless this exact version was agreed ===== */
+async function t9() {
+  const v = TERMS_VERSION;
+  const cases = [
+    { name: 'no record, no sign-up metadata', args: { row: null, metadata: null, version: v }, want: 'ask' },
+    { name: 'record for an older version', args: { row: { terms_version: '2000-01-01' }, metadata: {}, version: v }, want: 'ask' },
+    { name: 'sign-up metadata for an older version', args: { row: null, metadata: { terms_version: '2000-01-01' }, version: v }, want: 'ask' },
+    /* Positive controls: the gate must also open, or a permanently-closed gate would pass. */
+    { name: 'record for the current version', args: { row: { terms_version: v }, metadata: null, version: v }, want: 'accepted' },
+    { name: 'sign-up metadata for the current version', args: { row: null, metadata: { terms_version: v }, version: v }, want: 'record_signup' }
+  ];
+  const got = cases.map((c) => ({ ...c, got: decideTermsGate(c.args) }));
+  const wrong = got.filter((c) => c.got !== c.want);
+  return {
+    ok: wrong.length === 0,
+    expected: 'ask ×3 (closed), then accepted and record_signup (open) for the current version',
+    actual: wrong.length === 0
+      ? got.map((c) => `${c.name}: ${c.got}`).join('; ')
+      : wrong.map((c) => `${c.name}: got ${c.got}, wanted ${c.want}`).join('; ')
+  };
+}
+
 /* ================= main ================= */
 (async function main() {
   const halt = isolationFailure();
@@ -494,6 +517,7 @@ async function t8() {
   await run('T6', 'an abort writes its terminal entry and the session is no longer open', t6);
   await run('T7', 'entries appended in sequence produce a chain that verifies as intact', t7);
   await run('T8', 'altering an entry causes verification to fail', t8);
+  await run('T9', 'the terms-of-service gate stays closed unless the current version was agreed', t9);
 
   localStorage.removeItem(SELFTEST_STORE_KEY);
   harness.innerHTML = '';

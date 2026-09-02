@@ -39,10 +39,35 @@
           <button id="btn-pw-toggle" type="button" class="pw-toggle">SHOW</button>
         </div>
       </div>
+      <label class="check-item terms-item" id="auth-terms-item" hidden>
+        <input type="checkbox" id="auth-terms"><span class="check-decl">I have read and agree to the <a href="legal/terms.html" target="_blank" rel="noopener">Terms of Service</a> and <a href="legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a> on behalf of this enterprise, and I will tell the people who use it what the app records.</span>
+      </label>
       <div id="auth-msg" class="auth-msg"></div>
       <button id="btn-auth-submit" class="btn btn-primary btn-big">LOG IN</button>
       <button id="btn-auth-toggle" class="btn btn-secondary">NEW HERE? CREATE AN ENTERPRISE ACCOUNT</button>
       <button id="btn-forgot-pw" class="btn btn-tertiary">FORGOT PASSWORD?</button>
+      <p class="auth-fineprint"><a href="legal/terms.html" target="_blank" rel="noopener">Terms of Service</a> · <a href="legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
+    </div>
+  </section>
+
+  <!-- ============ TERMS OF SERVICE ACCEPTANCE (after sign-in, until agreed) ============ -->
+  <section id="screen-terms" class="screen">
+    <header class="home-header">
+      <img class="app-logo" src="img/t-logo.jpg" alt="">
+      <h1 class="app-title">TACILLON</h1>
+    </header>
+    <div class="auth-wrap">
+      <h2>TERMS OF SERVICE</h2>
+      <p class="screen-sub">Before this enterprise can use Tacillon, the person holding the account must read and agree to the terms. Version <span id="terms-version"></span>.</p>
+      <a id="lnk-terms" class="btn btn-secondary" href="legal/terms.html" target="_blank" rel="noopener">READ THE TERMS OF SERVICE</a>
+      <a id="lnk-privacy" class="btn btn-secondary" href="legal/privacy.html" target="_blank" rel="noopener">READ THE PRIVACY POLICY</a>
+      <label class="check-item terms-item" id="terms-agree-item">
+        <input type="checkbox" id="terms-agree"><span class="check-decl">I have read and agree to the Terms of Service and Privacy Policy on behalf of this enterprise, and I will tell the people who use it what the app records.</span>
+      </label>
+      <div id="terms-msg" class="auth-msg"></div>
+      <button id="btn-terms-agree" class="btn btn-primary btn-big" disabled>AGREE AND CONTINUE</button>
+      <button id="btn-terms-decline" class="btn btn-tertiary">DECLINE AND LOG OUT</button>
+      <p class="auth-fineprint">Your agreement is recorded with the date, the version and the account email. Declining signs you out; nothing else changes.</p>
     </div>
   </section>
 
