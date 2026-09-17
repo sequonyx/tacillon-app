@@ -9,7 +9,7 @@
    decideTermsGate() is a pure function so the self-test harness can prove the
    gate closes: no row and no signup metadata must yield 'ask'. */
 
-export const TERMS_VERSION = '2026-09-01';
+export const TERMS_VERSION = '2026-09-17';
 export const TERMS_URL = 'legal/terms.html';
 export const PRIVACY_URL = 'legal/privacy.html';
 

@@ -12,7 +12,7 @@ import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
 import { TERMS_VERSION, TERMS_URL, PRIVACY_URL, decideTermsGate, hashDocument } from './terms.js';
 
-const APP_VERSION = '0.13.1';
+const APP_VERSION = '0.13.2';
 const HOLD_SECONDS = 1.5;
 
 /* ---------------- UI helpers ---------------- */
