@@ -2,7 +2,7 @@
    Strategy: pre-cache the shell; cache-first for shell assets;
    video clips are NETWORK ONLY (too large to pre-cache; brief allows it). */
 
-const CACHE_NAME = 'tacillon-shell-v37';
+const CACHE_NAME = 'tacillon-shell-v38';
 
 /* The core shell. Cached atomically: if any of these fails, the new worker
    does not install and the old one keeps serving. */

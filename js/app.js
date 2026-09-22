@@ -12,8 +12,17 @@ import { runPublicManual, runManualViewer, sectionsOf } from './manual.js';
 import { runPublishScreen } from './publish.js';
 import { TERMS_VERSION, TERMS_URL, PRIVACY_URL, decideTermsGate, hashDocument } from './terms.js';
 
-const APP_VERSION = '0.13.2';
+const APP_VERSION = '0.13.3';
 const HOLD_SECONDS = 1.5;
+
+/* Pilot access gate (v0.13.3). While the platform is in closed pilot, the
+   login screen sits behind a page that asks would-be users to email for
+   access. Entering the access code once puts this device through to the
+   login screen for good (localStorage, deliberately outside backend's
+   CACHE so that LOG OUT does not clear it). Public manual links (?m=) and
+   devices that already hold a session never see the gate. */
+const ACCESS_CODE = 'T164';
+const ACCESS_KEY = 'tac_access';
 
 /* ---------------- UI helpers ---------------- */
 
@@ -186,6 +195,7 @@ function newSessionId() {
 async function boot() {
   document.getElementById('app-version').textContent = 'v' + APP_VERSION;
   document.getElementById('auth-version').textContent = 'v' + APP_VERSION;
+  document.getElementById('access-version').textContent = 'v' + APP_VERSION;
 
   /* Customer channel: a ?m=<public_id> link (from a QR code on a product)
      opens ONE published product manual — no login, no profiles, no library.
@@ -207,7 +217,7 @@ async function boot() {
     // (skipWaiting + clients.claim). Reload once so the fresh files show on
     // THIS launch instead of the next one — but only from a between-work
     // screen, never mid-session.
-    const SAFE_RELOAD_SCREENS = ['screen-auth', 'screen-terms', 'screen-profile', 'screen-library', 'screen-home'];
+    const SAFE_RELOAD_SCREENS = ['screen-access', 'screen-auth', 'screen-terms', 'screen-profile', 'screen-library', 'screen-home'];
     const hadController = !!navigator.serviceWorker.controller;
     let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -238,8 +248,42 @@ async function boot() {
   const session = await backend.getSession();
   if (recoveryMode && session) { show('screen-resetpw'); return; }
   if (recoveryMode) sessionStorage.removeItem('tac_pw_recovery'); // link expired or already used — normal login
-  if (!session) { setAuthMode('login'); show('screen-auth'); return; }
+  if (!session) { showLoginOrGate(); return; }
   await enterApp();
+}
+
+/* ---------------- pilot access gate ---------------- */
+
+function accessGranted() {
+  try { return localStorage.getItem(ACCESS_KEY) === '1'; } catch { return false; }
+}
+
+/* Every "no session" route lands here: the login screen if this device has
+   entered the code before, otherwise the access page. */
+function showLoginOrGate() {
+  if (accessGranted()) { setAuthMode('login'); show('screen-auth'); return; }
+  show('screen-access');
+}
+
+function accessMsg(text, cls = '') {
+  const el = document.getElementById('access-msg');
+  el.textContent = text;
+  el.className = 'auth-msg' + (cls ? ' ' + cls : '');
+}
+
+function submitAccessCode() {
+  const input = document.getElementById('access-code');
+  const code = input.value.trim().toUpperCase();
+  if (!code) { accessMsg('Enter the access code you were given.', 'bad'); return; }
+  if (code !== ACCESS_CODE) {
+    accessMsg('That code is not recognised. Check it and try again, or email mark@tacillon.com for access.', 'bad');
+    return;
+  }
+  try { localStorage.setItem(ACCESS_KEY, '1'); } catch { /* still lets this launch through */ }
+  input.value = '';
+  accessMsg('');
+  setAuthMode('login');
+  show('screen-auth');
 }
 
 /* ---------------- terms of service gate ----------------
@@ -254,7 +298,7 @@ async function enterApp() {
 
 async function ensureTermsAccepted() {
   const session = await backend.getSession();
-  if (!session) { setAuthMode('login'); show('screen-auth'); return false; }
+  if (!session) { showLoginOrGate(); return false; }
 
   let row = null;
   let offline = false;
@@ -726,6 +770,10 @@ async function renameOpenKC() {
 /* ---------------- static wiring ---------------- */
 
 function wireStatic() {
+  document.getElementById('btn-access-continue').addEventListener('click', submitAccessCode);
+  document.getElementById('access-code').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitAccessCode(); }
+  });
   document.getElementById('btn-auth-submit').addEventListener('click', submitAuth);
   document.getElementById('btn-auth-toggle').addEventListener('click', () =>
     setAuthMode(authMode === 'login' ? 'signup' : 'login'));

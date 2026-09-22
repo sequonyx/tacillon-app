@@ -191,7 +191,7 @@ a.btn { text-decoration: none; text-align: center; }
 .terms-item a { color: var(--accent); }
 .terms-item.checked { border-color: var(--ok); }
 .auth-fineprint { font-size: 0.8rem; text-align: center; color: var(--text-dim); }
-.auth-fineprint a { color: var(--accent); }
+.auth-fineprint a, .screen-sub a { color: var(--accent); }
 
 .pw-row { display: flex; gap: 8px; }
 .pw-row input { flex: 1; min-width: 0; }

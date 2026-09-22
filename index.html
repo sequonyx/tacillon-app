@@ -13,6 +13,28 @@
 </head>
 <body>
 
+  <!-- ============ PILOT ACCESS GATE (before login, until a code is entered on this device) ============ -->
+  <section id="screen-access" class="screen">
+    <header class="home-header">
+      <img class="app-logo" src="img/t-logo.jpg" alt="">
+      <h1 class="app-title">TACILLON</h1>
+      <div class="app-version" id="access-version"></div>
+    </header>
+    <div class="auth-wrap">
+      <h2>PILOT ACCESS</h2>
+      <p class="screen-sub">Tacillon is in closed pilot testing. To take part, email <a href="mailto:mark@tacillon.com">mark@tacillon.com</a> with your company, your name, your position, and the best way to reach you. Mark will contact you to set up your access.</p>
+      <a id="lnk-access-email" class="btn btn-primary btn-big" href="mailto:mark@tacillon.com?subject=Tacillon%20pilot%20access%20request&body=Company%3A%20%0AName%3A%20%0APosition%3A%20%0APhone%20or%20best%20contact%3A%20%0A">EMAIL MARK@TACILLON.COM</a>
+      <div class="auth-divider">or enter your access code</div>
+      <div class="field">
+        <label for="access-code">Access code</label>
+        <input id="access-code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      </div>
+      <div id="access-msg" class="auth-msg"></div>
+      <button id="btn-access-continue" class="btn btn-secondary btn-big">CONTINUE</button>
+      <p class="auth-fineprint"><a href="legal/terms.html" target="_blank" rel="noopener">Terms of Service</a> · <a href="legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
+    </div>
+  </section>
+
   <!-- ============ ENTERPRISE LOGIN ============ -->
   <section id="screen-auth" class="screen">
     <header class="home-header">
